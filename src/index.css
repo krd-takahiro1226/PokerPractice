@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0b0f14;
+  --color-surface: #141b24;
+  --color-surface-2: #1b232e;
+  --color-border: #22303c;
+  --color-border-bright: #2f4456;
+  --color-text: #e6edf3;
+  --color-muted: #8b9aa7;
+  --color-accent: #10b981;
+  --color-accent-bright: #34d399;
+  --color-accent-2: #22d3ee;
+  --color-gold: #f5b942;
+  --color-danger: #f43f5e;
+  --color-raise: #10b981;
+  --color-call: #38bdf8;
+  --color-fold: #3a4654;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(70% 55% at 50% -10%, rgba(16, 185, 129, 0.12), transparent 70%),
+    radial-gradient(45% 45% at 95% 5%, rgba(34, 211, 238, 0.08), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* thin custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-bright) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-bright);
+  border-radius: 99px;
+}
+
+@layer components {
+  .panel {
+    background-color: color-mix(in srgb, var(--color-surface) 75%, transparent);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+  }
+  .glow-accent {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent),
+      0 8px 28px -8px color-mix(in srgb, var(--color-accent) 50%, transparent);
+  }
+}

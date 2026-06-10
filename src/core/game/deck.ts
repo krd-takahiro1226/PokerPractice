@@ -1,0 +1,18 @@
+import { makeDeck, type Card } from '../cards';
+
+/** Fisher-Yates shuffle with injectable rng for deterministic tests. */
+export function shuffleDeck(rng: () => number = Math.random): Card[] {
+  const deck = makeDeck();
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = deck[i];
+    deck[i] = deck[j];
+    deck[j] = tmp;
+  }
+  return deck;
+}
+
+/** Deal n cards from the front of the deck. Returns [dealt, remaining]. */
+export function dealCards(deck: Card[], n: number): [Card[], Card[]] {
+  return [deck.slice(0, n), deck.slice(n)];
+}

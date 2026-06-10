@@ -1,0 +1,178 @@
+import { rankValue, type Card, type Rank, type Suit } from './cards';
+
+/**
+ * 7-card hand evaluator.
+ * Returns a single comparable number; higher is a stronger hand.
+ * Encoding: category in the leading base-16 digit, then up to 5 tiebreak ranks.
+ */
+
+export const CATEGORY = {
+  HIGH_CARD: 0,
+  PAIR: 1,
+  TWO_PAIR: 2,
+  TRIPS: 3,
+  STRAIGHT: 4,
+  FLUSH: 5,
+  FULL_HOUSE: 6,
+  QUADS: 7,
+  STRAIGHT_FLUSH: 8,
+} as const;
+
+export const CATEGORY_NAME: Record<number, string> = {
+  0: 'ハイカード',
+  1: 'ワンペア',
+  2: 'ツーペア',
+  3: 'スリーカード',
+  4: 'ストレート',
+  5: 'フラッシュ',
+  6: 'フルハウス',
+  7: 'フォーカード',
+  8: 'ストレートフラッシュ',
+};
+
+function enc(cat: number, kickers: number[]): number {
+  let v = cat;
+  for (let i = 0; i < 5; i++) {
+    v = v * 16 + (kickers[i] ?? 0);
+  }
+  return v;
+}
+
+export function handCategory(value: number): number {
+  return Math.floor(value / 16 ** 5);
+}
+
+/** Highest card value of the best straight in the given distinct ranks, or -1. */
+function straightHigh(present: boolean[]): number {
+  for (let high = 12; high >= 4; high--) {
+    let ok = true;
+    for (let k = 0; k < 5; k++) {
+      if (!present[high - k]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return high;
+  }
+  // wheel: A-2-3-4-5 (Ace low), high card is 5 (rank value 3)
+  if (present[12] && present[0] && present[1] && present[2] && present[3]) return 3;
+  return -1;
+}
+
+export function evaluate7(cards: Card[]): number {
+  // rank counts and per-suit rank lists
+  const rankCount = new Array(13).fill(0) as number[];
+  const present = new Array(13).fill(false) as boolean[];
+  const suitRanks: Record<Suit, number[]> = { s: [], h: [], d: [], c: [] };
+
+  for (const card of cards) {
+    const r = rankValue(card[0] as Rank);
+    const s = card[1] as Suit;
+    rankCount[r]++;
+    present[r] = true;
+    suitRanks[s].push(r);
+  }
+
+  // grouping
+  const quads: number[] = [];
+  const trips: number[] = [];
+  const pairs: number[] = [];
+  for (let r = 12; r >= 0; r--) {
+    if (rankCount[r] === 4) quads.push(r);
+    else if (rankCount[r] === 3) trips.push(r);
+    else if (rankCount[r] === 2) pairs.push(r);
+  }
+
+  // flush detection
+  let flushSuit: Suit | null = null;
+  for (const s of ['s', 'h', 'd', 'c'] as Suit[]) {
+    if (suitRanks[s].length >= 5) {
+      flushSuit = s;
+      break;
+    }
+  }
+
+  const candidates: number[] = [];
+
+  // straight flush
+  if (flushSuit) {
+    const fpresent = new Array(13).fill(false) as boolean[];
+    for (const r of suitRanks[flushSuit]) fpresent[r] = true;
+    const sfHigh = straightHigh(fpresent);
+    if (sfHigh >= 0) candidates.push(enc(CATEGORY.STRAIGHT_FLUSH, [sfHigh]));
+  }
+
+  // quads
+  if (quads.length) {
+    const q = quads[0];
+    let kicker = -1;
+    for (let r = 12; r >= 0; r--) {
+      if (r !== q && rankCount[r] > 0) {
+        kicker = r;
+        break;
+      }
+    }
+    candidates.push(enc(CATEGORY.QUADS, [q, kicker]));
+  }
+
+  // full house
+  if (trips.length >= 1 && (pairs.length >= 1 || trips.length >= 2)) {
+    const tripRank = trips[0];
+    const pairRank = trips.length >= 2 ? Math.max(trips[1], pairs[0] ?? -1) : pairs[0];
+    candidates.push(enc(CATEGORY.FULL_HOUSE, [tripRank, pairRank]));
+  }
+
+  // flush
+  if (flushSuit) {
+    const top = [...suitRanks[flushSuit]].sort((a, b) => b - a).slice(0, 5);
+    candidates.push(enc(CATEGORY.FLUSH, top));
+  }
+
+  // straight
+  const stHigh = straightHigh(present);
+  if (stHigh >= 0) candidates.push(enc(CATEGORY.STRAIGHT, [stHigh]));
+
+  // trips
+  if (trips.length) {
+    const t = trips[0];
+    const kickers: number[] = [];
+    for (let r = 12; r >= 0 && kickers.length < 2; r--) {
+      if (r !== t && rankCount[r] > 0) kickers.push(r);
+    }
+    candidates.push(enc(CATEGORY.TRIPS, [t, ...kickers]));
+  }
+
+  // two pair
+  if (pairs.length >= 2) {
+    const [p1, p2] = pairs;
+    let kicker = -1;
+    for (let r = 12; r >= 0; r--) {
+      if (r !== p1 && r !== p2 && rankCount[r] > 0) {
+        kicker = r;
+        break;
+      }
+    }
+    candidates.push(enc(CATEGORY.TWO_PAIR, [p1, p2, kicker]));
+  }
+
+  // one pair
+  if (pairs.length >= 1) {
+    const p = pairs[0];
+    const kickers: number[] = [];
+    for (let r = 12; r >= 0 && kickers.length < 3; r--) {
+      if (r !== p && rankCount[r] > 0) kickers.push(r);
+    }
+    candidates.push(enc(CATEGORY.PAIR, [p, ...kickers]));
+  }
+
+  // high card
+  {
+    const top: number[] = [];
+    for (let r = 12; r >= 0 && top.length < 5; r--) {
+      if (rankCount[r] > 0) top.push(r);
+    }
+    candidates.push(enc(CATEGORY.HIGH_CARD, top));
+  }
+
+  return Math.max(...candidates);
+}

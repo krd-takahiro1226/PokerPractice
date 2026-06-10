@@ -1,0 +1,193 @@
+import { evaluate7, handCategory, CATEGORY } from '../evaluator';
+import { rankValue, cardRank, cardSuit, type Card, type Rank } from '../cards';
+
+export type MadeClass =
+  | 'air' | 'weak-pair' | 'mid-pair' | 'top-pair' | 'overpair'
+  | 'two-pair' | 'set' | 'straight' | 'flush' | 'full-plus';
+
+export type DrawClass = 'none' | 'gutshot' | 'oesd' | 'flush-draw' | 'combo-draw';
+
+export type HandStrength = {
+  made: MadeClass;
+  draw: DrawClass;
+  /** 0..1 のざっくり強度スコア */
+  score: number;
+};
+
+const MADE_SCORE: Record<MadeClass, number> = {
+  'air': 0.05,
+  'weak-pair': 0.15,
+  'mid-pair': 0.30,
+  'top-pair': 0.50,
+  'overpair': 0.60,
+  'two-pair': 0.70,
+  'set': 0.80,
+  'straight': 0.85,
+  'flush': 0.88,
+  'full-plus': 0.95,
+};
+
+const DRAW_BONUS: Record<DrawClass, number> = {
+  'none': 0,
+  'gutshot': 0.05,
+  'oesd': 0.10,
+  'flush-draw': 0.12,
+  'combo-draw': 0.18,
+};
+
+/** ホール2枚 + board から強度を分類。ボードが空の場合は air/draw を返す。 */
+export function classifyStrength(hole: [Card, Card], board: Card[]): HandStrength {
+  if (board.length === 0) {
+    // プリフロップ: スコアはホールカードの強さで簡易算出
+    return { made: 'air', draw: 'none', score: preflopScore(hole) };
+  }
+
+  const allCards = [...hole, ...board];
+  const value = evaluate7(allCards);
+  const cat = handCategory(value);
+
+  const made = classifyMade(cat, hole, board);
+  const draw = board.length < 5 ? classifyDraw(hole, board) : 'none';
+
+  const baseScore = MADE_SCORE[made];
+  const drawBonus = DRAW_BONUS[draw];
+  const score = Math.min(1, baseScore + (made === 'air' ? drawBonus * 1.5 : drawBonus * 0.5));
+
+  return { made, draw, score };
+}
+
+function classifyMade(cat: number, hole: [Card, Card], board: Card[]): MadeClass {
+  switch (cat) {
+    case CATEGORY.STRAIGHT_FLUSH:
+    case CATEGORY.QUADS:
+    case CATEGORY.FULL_HOUSE:
+      return 'full-plus';
+    case CATEGORY.FLUSH:
+      return 'flush';
+    case CATEGORY.STRAIGHT:
+      return 'straight';
+    case CATEGORY.TRIPS:
+      return isSet(hole, board) ? 'set' : 'two-pair'; // trips from board → two-pair相当
+    case CATEGORY.TWO_PAIR:
+      return 'two-pair';
+    case CATEGORY.PAIR:
+      return classifyPair(hole, board);
+    case CATEGORY.HIGH_CARD:
+    default:
+      return 'air';
+  }
+}
+
+/** hole2枚がボードにマッチしてセットになっているか */
+function isSet(hole: [Card, Card], board: Card[]): boolean {
+  const h0 = cardRank(hole[0]);
+  const h1 = cardRank(hole[1]);
+  if (h0 !== h1) return false; // ポケットペアでないと set にならない
+  return board.some((c) => cardRank(c) === h0);
+}
+
+/** ペアの位置分類 */
+function classifyPair(hole: [Card, Card], board: Card[]): MadeClass {
+  const h0r = cardRank(hole[0]);
+  const h1r = cardRank(hole[1]);
+  const boardRanks = board.map(cardRank);
+
+  // ポケットペア
+  if (h0r === h1r) {
+    const pairVal = rankValue(h0r);
+    const maxBoard = Math.max(...boardRanks.map(rankValue));
+    return pairVal > maxBoard ? 'overpair' : 'mid-pair';
+  }
+
+  // ボードとのマッチ
+  const h0v = rankValue(h0r);
+  const h1v = rankValue(h1r);
+  const boardVals = boardRanks.map(rankValue).sort((a, b) => b - a);
+
+  const matchH0 = boardRanks.includes(h0r);
+  const matchH1 = boardRanks.includes(h1r);
+
+  if (!matchH0 && !matchH1) return 'air'; // shouldn't happen if cat=PAIR
+
+  const matchedRank = matchH0 ? h0v : h1v;
+  const maxBoardVal = boardVals[0];
+
+  if (matchedRank === maxBoardVal) return 'top-pair';
+  if (matchedRank >= boardVals[Math.min(1, boardVals.length - 1)]) return 'mid-pair';
+  return 'weak-pair';
+}
+
+function classifyDraw(hole: [Card, Card], board: Card[]): DrawClass {
+  const hasFlushDraw = detectFlushDraw(hole, board);
+  const straightDraw = detectStraightDraw(hole, board);
+
+  if (hasFlushDraw && straightDraw !== 'none') return 'combo-draw';
+  if (hasFlushDraw) return 'flush-draw';
+  return straightDraw;
+}
+
+function detectFlushDraw(hole: [Card, Card], board: Card[]): boolean {
+  const suitCount: Record<string, number> = {};
+  for (const c of [...hole, ...board]) {
+    const s = cardSuit(c);
+    suitCount[s] = (suitCount[s] ?? 0) + 1;
+  }
+  // holecardのスーツが4枚ならフラッシュドロー
+  for (const c of hole) {
+    const s = cardSuit(c);
+    if ((suitCount[s] ?? 0) === 4) return true;
+  }
+  return false;
+}
+
+function detectStraightDraw(hole: [Card, Card], board: Card[]): DrawClass {
+  const allRanks = [...hole, ...board].map((c) => rankValue(cardRank(c)));
+  // Ace可低（A=0相当）
+  const rankSet = new Set(allRanks);
+  if (rankSet.has(12)) rankSet.add(-1); // A-low
+
+  const sorted = [...rankSet].sort((a, b) => a - b);
+
+  let maxOesd = 0;
+  let maxGutshot = 0;
+
+  // 5枚ウィンドウでストレートドローをスキャン
+  for (let low = -1; low <= 8; low++) {
+    const window = [low, low+1, low+2, low+3, low+4];
+    const hits = window.filter((r) => rankSet.has(r)).length;
+    const gaps = window.filter((r) => !rankSet.has(r)).length;
+    if (hits === 4 && gaps === 1) maxOesd = Math.max(maxOesd, hits);
+    if (hits === 4) {
+      // OESDかガットショットか判断
+      const presentPositions = window.map((r, i) => rankSet.has(r) ? i : -1).filter((i) => i >= 0);
+      // 4枚が連続していればOESD、そうでなければgutshot
+      const isConsecutive = presentPositions[presentPositions.length-1] - presentPositions[0] === 3;
+      if (isConsecutive) maxOesd = Math.max(maxOesd, 4);
+      else maxGutshot = Math.max(maxGutshot, 4);
+    }
+  }
+
+  if (maxOesd >= 4) return 'oesd';
+  if (maxGutshot >= 4) return 'gutshot';
+  return 'none';
+}
+
+/** プリフロップ用の簡易スコア（0..1）。ポケットペア・スーテッド・ブロードウェイなどを考慮。 */
+function preflopScore(hole: [Card, Card]): number {
+  const r0 = cardRank(hole[0]);
+  const r1 = cardRank(hole[1]);
+  const v0 = rankValue(r0);
+  const v1 = rankValue(r1);
+  const suited = cardSuit(hole[0]) === cardSuit(hole[1]);
+  const isPair = r0 === r1;
+
+  if (isPair) {
+    return 0.3 + (Math.max(v0, v1) / 12) * 0.5;
+  }
+  const hi = Math.max(v0, v1);
+  const lo = Math.min(v0, v1);
+  const base = (hi / 12) * 0.4 + (lo / 12) * 0.2;
+  const suitedBonus = suited ? 0.05 : 0;
+  const connectorBonus = (hi - lo <= 2) ? 0.03 : 0;
+  return Math.min(0.8, base + suitedBonus + connectorBonus);
+}

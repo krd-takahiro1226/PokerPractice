@@ -1,0 +1,63 @@
+export const RANKS = [
+  '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A',
+] as const;
+export type Rank = (typeof RANKS)[number];
+
+export const SUITS = ['s', 'h', 'd', 'c'] as const;
+export type Suit = (typeof SUITS)[number];
+
+export type Card = `${Rank}${Suit}`;
+
+/** 2 -> 0 ... A -> 12 */
+export function rankValue(rank: Rank): number {
+  return RANKS.indexOf(rank);
+}
+
+export function cardRank(card: Card): Rank {
+  return card[0] as Rank;
+}
+
+export function cardSuit(card: Card): Suit {
+  return card[1] as Suit;
+}
+
+export function makeDeck(): Card[] {
+  const deck: Card[] = [];
+  for (const r of RANKS) {
+    for (const s of SUITS) {
+      deck.push(`${r}${s}`);
+    }
+  }
+  return deck;
+}
+
+/** Returns deck with the given cards removed. */
+export function removeCards(deck: Card[], used: Iterable<Card>): Card[] {
+  const set = new Set(used);
+  return deck.filter((c) => !set.has(c));
+}
+
+const CARD_RE = /^[2-9TJQKA][shdc]$/;
+
+export function isCard(value: string): value is Card {
+  return CARD_RE.test(value);
+}
+
+export function parseCard(value: string): Card {
+  if (!isCard(value)) throw new Error(`Invalid card: ${value}`);
+  return value as Card;
+}
+
+export const SUIT_SYMBOL: Record<Suit, string> = {
+  s: '♠', // ♠
+  h: '♥', // ♥
+  d: '♦', // ♦
+  c: '♣', // ♣
+};
+
+export const SUIT_IS_RED: Record<Suit, boolean> = {
+  s: false,
+  h: true,
+  d: true,
+  c: false,
+};
