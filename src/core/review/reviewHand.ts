@@ -1,5 +1,5 @@
 import { cardsToHandClass } from '../handNotation';
-import { getScenario } from '../ranges';
+import { getScenarioForMode } from '../ranges';
 import { getVsOpen } from '../ranges/vsOpen';
 import { primaryAction } from '../ranges/types';
 import { estimateEquityVsRange } from '../ai/estimateEquity';
@@ -78,7 +78,7 @@ function reviewRFI(
   handClass: string,
   heroPos: Position,
 ): DecisionReview {
-  const scenario = getScenario(`RFI_${heroPos}`);
+  const scenario = getScenarioForMode(`RFI_${heroPos}`, hand.mode ?? 'tournament');
 
   if (!scenario) {
     return {
@@ -500,7 +500,7 @@ function buildVillainRangeFromLog(hand: SavedHand): Record<string, number> {
 
   if (opener.playerId !== 0) {
     // Villain opened: use RFI range for that position
-    const scenario = getScenario(`RFI_${openerPos}`);
+    const scenario = getScenarioForMode(`RFI_${openerPos}`, hand.mode ?? 'tournament');
     if (scenario) {
       const range: Record<string, number> = {};
       for (const [hc, action] of Object.entries(scenario.range)) {
@@ -539,7 +539,7 @@ function buildVillainRangeFromLog(hand: SavedHand): Record<string, number> {
   }
 
   // Fallback: RFI range for opener position
-  const rfiScenario = getScenario(`RFI_${openerPos}`);
+  const rfiScenario = getScenarioForMode(`RFI_${openerPos}`, hand.mode ?? 'tournament');
   if (rfiScenario) {
     const range: Record<string, number> = {};
     for (const [hc, action] of Object.entries(rfiScenario.range)) {

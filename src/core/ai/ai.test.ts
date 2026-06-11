@@ -14,9 +14,11 @@ function makeRng(seed: number): () => number {
 function freshConfig(seed = 42, difficulty: GameConfig['difficulty'] = 'normal'): GameConfig {
   return {
     difficulty,
+    mode: 'tournament',
     startingStack: 100,
     sb: 0.5,
     bb: 1,
+    ante: 0,
     rng: makeRng(seed),
   };
 }
@@ -186,9 +188,11 @@ describe('チップ保存性テスト（CPU 6人自動対戦）', () => {
       for (let hand = 0; hand < 50; hand++) {
         const handConfig: GameConfig = {
           difficulty: diff,
+          mode: 'tournament',
           startingStack: 100,
           sb: 0.5,
           bb: 1,
+          ante: 0,
           rng: makeRng(hand * 13 + diff.length),
         };
         state = startHand(state, handConfig);
@@ -196,6 +200,41 @@ describe('チップ保存性テスト（CPU 6人自動対戦）', () => {
           state = runHandToCompletion(state!);
         }).not.toThrow();
         expect(state!.street).toBe('showdown');
+      }
+    }
+  });
+});
+
+describe('decideCpu - モード対応', () => {
+  it('cash-noante モードでも常に合法アクションを返す', () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const config: GameConfig = {
+        difficulty: 'normal',
+        mode: 'cash-noante',
+        startingStack: 100,
+        sb: 0.5,
+        bb: 1,
+        ante: 0,
+        rng: makeRng(seed),
+      };
+      let state = startHand(null, config);
+      let actionCount = 0;
+
+      while (state.toAct !== null && state.street === 'preflop' && actionCount < 20) {
+        actionCount++;
+        const pid = state.toAct;
+        const action = decideCpu(state, pid);
+        const legal = legalActions(state, pid);
+
+        if (action.type === 'check') {
+          expect(legal.canCheck, `seed=${seed} check illegal`).toBe(true);
+        } else if (action.type === 'call') {
+          expect(legal.canCall, `seed=${seed} call illegal`).toBe(true);
+        } else if (action.type === 'raise') {
+          expect(legal.canRaise, `seed=${seed} raise illegal`).toBe(true);
+        }
+
+        state = applyAction(state, pid, action);
       }
     }
   });

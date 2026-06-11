@@ -13,9 +13,11 @@ function makeRng(seed: number): () => number {
 
 const DEFAULT_CONFIG: GameConfig = {
   difficulty: 'normal',
+  mode: 'tournament',
   startingStack: 100,
   sb: 0.5,
   bb: 1,
+  ante: 0,
   rng: makeRng(42),
 };
 
@@ -234,6 +236,7 @@ describe('legalActions', () => {
     const config: GameConfig = {
       ...freshConfig(),
       startingStack: 5, // 5bb スタート（SB/BBの後は残り少ない）
+      ante: 0,
     };
     const state = startHand(null, config);
     // UTGはコール時 all-in になるかもしれない
@@ -250,9 +253,11 @@ describe('all-in コール処理', () => {
     // 5bb スタックでプレイ。UTGが10bbにraiseした場合
     const config: GameConfig = {
       difficulty: 'normal',
+      mode: 'tournament',
       startingStack: 5,
       sb: 0.5,
       bb: 1,
+      ante: 0,
       rng: makeRng(99),
     };
     let state = startHand(null, config);
@@ -314,5 +319,96 @@ describe('チップ保存性テスト（重要）', () => {
     // ショーダウン後のスタック合計 = startingStack * 6
     const finalTotal = state.players.reduce((s, p) => s + p.stack, 0);
     expect(finalTotal).toBeCloseTo(startTotal, 5);
+  });
+});
+
+describe('ante テスト（BB ante 方式）', () => {
+  function anteConfig(seed = 42): GameConfig {
+    return {
+      difficulty: 'normal',
+      mode: 'tournament',
+      startingStack: 100,
+      sb: 0.5,
+      bb: 1,
+      ante: 1,
+      rng: makeRng(seed),
+    };
+  }
+
+  it('startHand: pot === ante', () => {
+    const state = startHand(null, anteConfig());
+    expect(state.pot).toBe(1);
+  });
+
+  it('startHand: currentBet === bb (ante はコール額に影響しない)', () => {
+    const state = startHand(null, anteConfig());
+    expect(state.currentBet).toBe(1);
+  });
+
+  it('startHand: BB の committedStreet === bb', () => {
+    const state = startHand(null, anteConfig());
+    const bb = state.players.find((p) => p.pos === 'BB')!;
+    expect(bb.committedStreet).toBeCloseTo(1);
+  });
+
+  it('startHand: BB の committedTotal === bb + ante', () => {
+    const state = startHand(null, anteConfig());
+    const bb = state.players.find((p) => p.pos === 'BB')!;
+    expect(bb.committedTotal).toBeCloseTo(2);
+  });
+
+  it('startHand: BB の stack === startingStack - bb - ante', () => {
+    const state = startHand(null, anteConfig());
+    const bb = state.players.find((p) => p.pos === 'BB')!;
+    expect(bb.stack).toBeCloseTo(98);
+  });
+
+  it('ante=1 ハンドのチップ保存性: Σ stack_after === 6 * startingStack', () => {
+    const config = anteConfig(7);
+    let state = startHand(null, config);
+    const startTotal = config.startingStack * 6;
+
+    while (state.street !== 'showdown') {
+      if (state.toAct !== null) {
+        const p = state.players[state.toAct];
+        const legal = legalActions(state, p.id);
+        if (legal.canCheck) {
+          state = applyAction(state, p.id, { type: 'check' });
+        } else {
+          state = applyAction(state, p.id, { type: 'call' });
+        }
+      } else {
+        state = advanceStreet(state);
+      }
+    }
+
+    const finalTotal = state.players.reduce((s, p) => s + p.stack, 0);
+    expect(finalTotal).toBeCloseTo(startTotal, 5);
+  });
+
+  it('ante=1 UTGオープン→全員フォールド: ante 込みポットがオープナーへ', () => {
+    let state = startHand(null, anteConfig(42));
+    const utg = state.players.find((p) => p.pos === 'UTG')!;
+    const hj = state.players.find((p) => p.pos === 'HJ')!;
+    const co = state.players.find((p) => p.pos === 'CO')!;
+    const btn = state.players.find((p) => p.pos === 'BTN')!;
+    const sb = state.players.find((p) => p.pos === 'SB')!;
+    const bb = state.players.find((p) => p.pos === 'BB')!;
+
+    // UTG open 2.5bb
+    state = applyAction(state, utg.id, { type: 'raise', amount: 2.5 });
+    state = applyAction(state, hj.id, { type: 'fold' });
+    state = applyAction(state, co.id, { type: 'fold' });
+    state = applyAction(state, btn.id, { type: 'fold' });
+    state = applyAction(state, sb.id, { type: 'fold' });
+    state = applyAction(state, bb.id, { type: 'fold' });
+
+    state = advanceStreet(state);
+
+    expect(state.street).toBe('showdown');
+    expect(state.result).not.toBeNull();
+    expect(state.result!.winners[0].playerId).toBe(utg.id);
+    // ポット = ante(1) + SB(0.5) + BB(1) + UTG raise(2.5)
+    expect(state.result!.winners[0].amount).toBeCloseTo(5);
   });
 });

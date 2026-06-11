@@ -1,0 +1,38 @@
+import type { Position } from './types';
+
+export type GameMode = 'tournament' | 'cash-ante' | 'cash-noante';
+
+export const GAME_MODES: GameMode[] = ['tournament', 'cash-ante', 'cash-noante'];
+
+export const GAME_MODE_LABEL: Record<GameMode, string> = {
+  tournament: 'トーナメント',
+  'cash-ante': 'キャッシュ（アンティあり）',
+  'cash-noante': 'キャッシュ（アンティなし）',
+};
+
+export const GAME_MODE_SHORT: Record<GameMode, string> = {
+  tournament: 'トーナメント',
+  'cash-ante': 'アンティあり',
+  'cash-noante': 'アンティなし',
+};
+
+/** tournament / cash-ante 共通: ポジションが使う最大tier番号(1..7)。 */
+const BASE_MAX_TIER: Record<Position, number> = {
+  UTG: 5,
+  HJ: 5,
+  CO: 6,
+  BTN: 7,
+  SB: 7,  // チャート未定義のため2人の列(tier7)を適用（設計判断）
+  BB: 0,  // BB は RFI なし（§3 で別扱い）
+};
+
+/**
+ * モード×ポジション → 使用する最大tier番号(1..7)。0 は RFI なし。
+ * cash-noante は base から 1 tier タイト化（最も広いtierを1つ落とす）。
+ */
+export function maxTierFor(mode: GameMode, pos: Position): number {
+  const base = BASE_MAX_TIER[pos];
+  if (base === 0) return 0;
+  if (mode === 'cash-noante') return base - 1;
+  return base; // tournament / cash-ante は同一
+}

@@ -157,6 +157,22 @@ export function startHand(prev: GameState | null, config: GameConfig): GameState
     return p;
   });
 
+  // BB ante: BB が全員分の ante を追加投下（dead money としてポットに入れる）
+  // ante は committedStreet に加算しない（コール額を増やさないため）
+  const bbAfterBlind = players.find((p) => p.pos === 'BB')!;
+  const anteAmount = Math.min(config.ante ?? 0, bbAfterBlind.stack);
+  if (anteAmount > 0) {
+    players = players.map((p) => {
+      if (p.id !== bbAfterBlind.id) return p;
+      return {
+        ...p,
+        stack: p.stack - anteAmount,
+        committedTotal: p.committedTotal + anteAmount,
+        status: p.stack - anteAmount <= 0 ? 'allin' as const : p.status,
+      };
+    });
+  }
+
   const firstToAct = preflopFirstToAct(players);
 
   return {
@@ -167,8 +183,8 @@ export function startHand(prev: GameState | null, config: GameConfig): GameState
     board: [],
     deck: remaining,
     street: 'preflop',
-    pot: 0,
-    currentBet: bbAmount,
+    pot: anteAmount,        // ante を確定ポットへ
+    currentBet: bbAmount,   // ante はコール額に影響しない
     minRaise: config.bb,
     toAct: firstToAct,
     lastAggressor: null,

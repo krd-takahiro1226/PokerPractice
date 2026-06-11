@@ -8,6 +8,7 @@ import { PlayingCard } from '../components/PlayingCard';
 import { PokerTable } from '../components/versus/PokerTable';
 import { BetControls } from '../components/versus/BetControls';
 import { useVersusGame } from '../hooks/useVersusGame';
+import { GAME_MODES, GAME_MODE_SHORT } from '../core/ranges';
 import { useHistory } from '../store/history';
 import { reviewHand } from '../core/review/reviewHand';
 import type { SavedHand } from '../store/history';
@@ -68,7 +69,7 @@ export function Versus() {
 // ─── Game Tab ──────────────────────────────────────────────────────────────────
 
 function GameTab() {
-  const { state, legal, isHeroTurn, heroAct, newHand, difficulty, setDifficulty } =
+  const { state, legal, isHeroTurn, heroAct, newHand, difficulty, setDifficulty, mode, setMode } =
     useVersusGame();
 
   const hero = state.players[0];
@@ -94,7 +95,7 @@ function GameTab() {
   return (
     <div className="flex flex-col gap-4">
       {/* Difficulty selector */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted">難易度:</span>
         {(['easy', 'normal', 'hard'] as const).map((d) => (
           <button
@@ -108,6 +109,21 @@ function GameTab() {
             )}
           >
             {DIFFICULTY_LABEL[d]}
+          </button>
+        ))}
+        <span className="ml-2 text-xs text-muted">モード:</span>
+        {GAME_MODES.map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cn(
+              'rounded-lg px-3 py-1 text-xs font-medium transition',
+              mode === m
+                ? 'bg-accent text-[#04221a]'
+                : 'border border-border text-muted hover:text-text',
+            )}
+          >
+            {GAME_MODE_SHORT[m]}
           </button>
         ))}
         <span className="ml-auto text-[10px] text-muted">
@@ -235,6 +251,7 @@ function HistoryRow({ hand, onClick }: { hand: SavedHand; onClick: () => void })
   const netNeutral = hand.heroNet === 0;
   const date = new Date(hand.ts);
   const DIFF_LABEL = { easy: 'やさしい', normal: 'ふつう', hard: 'つよい' };
+  const modeBadge = GAME_MODE_SHORT[hand.mode] ?? hand.mode;
 
   return (
     <button
@@ -260,6 +277,9 @@ function HistoryRow({ hand, onClick }: { hand: SavedHand; onClick: () => void })
         <div className="mt-0.5 flex items-center gap-1.5">
           <span className="rounded border border-border px-1 text-[10px] text-muted">
             {DIFF_LABEL[hand.difficulty]}
+          </span>
+          <span className="rounded border border-border px-1 text-[10px] text-muted">
+            {modeBadge}
           </span>
           {hand.board.length > 0 && (
             <span className="text-[10px] text-muted">

@@ -1,5 +1,6 @@
 import type { Card } from '../cards';
 import type { Position } from '../ranges/types';
+import type { GameMode } from '../ranges/mode';
 
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
 
@@ -26,9 +27,12 @@ export type PlayerState = {
 
 export type GameConfig = {
   difficulty: 'easy' | 'normal' | 'hard';
+  mode: GameMode;             // RFI/AI/レビューが参照
   startingStack: number;      // 既定 100
   sb: number;                 // 0.5
   bb: number;                 // 1
+  /** BB ante 合計(bb)。0 = アンティなし。アンティありモードは bb と同額(=1)。 */
+  ante: number;
   /** 乱数注入（テスト用）。省略時 Math.random */
   rng?: () => number;
 };

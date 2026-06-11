@@ -10,6 +10,7 @@ import {
 } from '../core/game/engine';
 import { decideCpu } from '../core/ai';
 import type { GameState, GameConfig, PlayerAction } from '../core/game/types';
+import type { GameMode } from '../core/ranges/mode';
 import { useHistory } from '../store/history';
 import type { SavedHand } from '../store/history';
 
@@ -21,17 +22,27 @@ export type VersusController = {
   newHand: () => void;
   difficulty: GameConfig['difficulty'];
   setDifficulty: (d: GameConfig['difficulty']) => void;
+  mode: GameMode;
+  setMode: (m: GameMode) => void;
 };
 
-const DEFAULT_CONFIG: GameConfig = {
-  difficulty: 'normal',
+const DEFAULT_CONFIG_BASE = {
   startingStack: 100,
   sb: 0.5,
   bb: 1,
 };
 
-function makeConfig(difficulty: GameConfig['difficulty']): GameConfig {
-  return { ...DEFAULT_CONFIG, difficulty };
+function anteForMode(mode: GameMode, bb: number): number {
+  return mode === 'cash-noante' ? 0 : bb;
+}
+
+function makeConfig(difficulty: GameConfig['difficulty'], mode: GameMode): GameConfig {
+  return {
+    ...DEFAULT_CONFIG_BASE,
+    difficulty,
+    mode,
+    ante: anteForMode(mode, DEFAULT_CONFIG_BASE.bb),
+  };
 }
 
 function isHandOver(state: GameState): boolean {
@@ -46,13 +57,15 @@ function needsAdvance(state: GameState): boolean {
 
 export function useVersusGame(): VersusController {
   const [difficulty, setDifficultyState] = useState<GameConfig['difficulty']>('normal');
+  const [mode, setModeState] = useState<GameMode>('tournament');
   const [state, setState] = useState<GameState>(() =>
-    startHand(null, makeConfig('normal')),
+    startHand(null, makeConfig('normal', 'tournament')),
   );
   const addHistory = useHistory((s) => s.add);
 
-  // Pending difficulty change (applies on next hand)
+  // Pending changes (apply on next hand)
   const pendingDifficulty = useRef<GameConfig['difficulty']>('normal');
+  const pendingMode = useRef<GameMode>('tournament');
 
   const isHeroTurn = state.toAct === 0 && state.street !== 'showdown';
   const legal = isHeroTurn ? legalActions(state, 0) : null;
@@ -116,12 +129,12 @@ export function useVersusGame(): VersusController {
     const heroWin = state.result.winners
       .filter((w) => w.playerId === 0)
       .reduce((s, w) => s + w.amount, 0);
-    // heroNet = winnings - total committed
     const heroNet = heroWin - hero.committedTotal;
 
     const savedHand: SavedHand = {
       id: `${Date.now()}-${state.handNumber}`,
       ts: Date.now(),
+      mode: state.config.mode,
       difficulty: state.config.difficulty,
       heroPos: hero.pos,
       heroHole: hero.hole,
@@ -174,12 +187,18 @@ export function useVersusGame(): VersusController {
     processingRef.current = false;
     savedRef.current = null;
     const d = pendingDifficulty.current;
-    setState((prev) => startHand(prev, makeConfig(d)));
+    const m = pendingMode.current;
+    setState((prev) => startHand(prev, makeConfig(d, m)));
   }, []);
 
   const setDifficulty = useCallback((d: GameConfig['difficulty']) => {
     pendingDifficulty.current = d;
     setDifficultyState(d);
+  }, []);
+
+  const setMode = useCallback((m: GameMode) => {
+    pendingMode.current = m;
+    setModeState(m);
   }, []);
 
   return {
@@ -190,5 +209,7 @@ export function useVersusGame(): VersusController {
     newHand,
     difficulty,
     setDifficulty,
+    mode,
+    setMode,
   };
 }

@@ -1,46 +1,47 @@
-import { tokensToRange } from './expand';
-import type { Scenario } from './types';
+import { TIERS } from './yokosawa';
+import { maxTierFor, type GameMode } from './mode';
+import type { HandClass } from '../handNotation';
+import type { Position, Range, Scenario } from './types';
+
+const RFI_POSITIONS: Position[] = ['UTG', 'HJ', 'CO', 'BTN', 'SB'];
+
+/** モード×ポジション → 累積ティアを展開した HandClass 配列。 */
+export function rfiHandClasses(mode: GameMode, pos: Position): HandClass[] {
+  const maxTier = maxTierFor(mode, pos);
+  if (maxTier === 0) return [];
+  return TIERS.slice(0, maxTier).flat();
+}
+
+/** モード×ポジション → pure-raise Range。 */
+export function getRfiRange(mode: GameMode, pos: Position): Range {
+  const range: Range = {};
+  for (const h of rfiHandClasses(mode, pos)) range[h] = { raise: 1 };
+  return range;
+}
+
+const OPEN_SIZE: Record<Position, number> = {
+  UTG: 2.5, HJ: 2.5, CO: 2.5, BTN: 2.5, SB: 3.0, BB: 0,
+};
+
+const POS_LABEL_JA: Record<Position, string> = {
+  UTG: 'UTG', HJ: 'HJ', CO: 'CO', BTN: 'BTN', SB: 'SB', BB: 'BB',
+};
 
 /**
- * RFI (Raise First In) starter ranges — NLH 6-max 100bb.
- * Simplified / approximate, pure-raise. Tune against a reference chart before shipping.
- * See docs/DESIGN.md §6.
+ * scenario id は **モードに依存しない**（'RFI_UTG' 等）。
+ * Home.tsx の弱点ラベル参照（byScenario のキー）が壊れないようにするため。
+ * モードは Range の中身だけに反映する。
  */
+export function getRfiScenarios(mode: GameMode): Scenario[] {
+  return RFI_POSITIONS.map((pos) => ({
+    id: `RFI_${pos}`,
+    label: `${POS_LABEL_JA[pos]} オープン`,
+    heroPos: pos,
+    context: 'RFI' as const,
+    sizeBB: OPEN_SIZE[pos],
+    range: getRfiRange(mode, pos),
+  }));
+}
 
-const UTG = [
-  '22+',
-  'ATs+', 'A5s-A4s', 'KTs+', 'QTs+', 'JTs', 'T9s', '98s', '87s', '76s',
-  'AJo+', 'KQo',
-];
-
-const HJ = [
-  '22+',
-  'A9s+', 'A5s-A4s', 'K9s+', 'Q9s+', 'J9s+', 'T8s+', '98s', '87s', '76s', '65s',
-  'ATo+', 'KJo+', 'QJo',
-];
-
-const CO = [
-  '22+',
-  'A2s+', 'K9s+', 'Q9s+', 'J9s+', 'T8s+', '97s+', '86s+', '76s', '65s', '54s',
-  'A9o+', 'KTo+', 'QTo+', 'JTo',
-];
-
-const BTN = [
-  '22+',
-  'A2s+', 'K5s+', 'Q8s+', 'J8s+', 'T8s+', '97s+', '86s+', '75s+', '64s+', '54s', '43s',
-  'A2o+', 'K9o+', 'Q9o+', 'J9o+', 'T9o', '98o',
-];
-
-const SB = [
-  '22+',
-  'A2s+', 'K7s+', 'Q8s+', 'J8s+', 'T8s+', '97s+', '86s+', '75s+', '65s', '54s',
-  'A7o+', 'K9o+', 'QTo+', 'JTo',
-];
-
-export const RFI_SCENARIOS: Scenario[] = [
-  { id: 'RFI_UTG', label: 'UTG オープン', heroPos: 'UTG', context: 'RFI', sizeBB: 2.5, range: tokensToRange(UTG) },
-  { id: 'RFI_HJ', label: 'HJ オープン', heroPos: 'HJ', context: 'RFI', sizeBB: 2.5, range: tokensToRange(HJ) },
-  { id: 'RFI_CO', label: 'CO オープン', heroPos: 'CO', context: 'RFI', sizeBB: 2.5, range: tokensToRange(CO) },
-  { id: 'RFI_BTN', label: 'BTN オープン', heroPos: 'BTN', context: 'RFI', sizeBB: 2.5, range: tokensToRange(BTN) },
-  { id: 'RFI_SB', label: 'SB オープン', heroPos: 'SB', context: 'RFI', sizeBB: 3.0, range: tokensToRange(SB) },
-];
+/** 後方互換: 既定モード = tournament の RFI_SCENARIOS。 */
+export const RFI_SCENARIOS: Scenario[] = getRfiScenarios('tournament');

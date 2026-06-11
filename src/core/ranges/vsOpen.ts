@@ -1,4 +1,6 @@
 import { tokensToRangeWithActions } from './expand';
+import { TIER2, TIER3, TIER4, TIER5, TIER6, TIER7, BB_CALL } from './yokosawa';
+import type { HandClass } from '../handNotation';
 import type { Position, Range } from './types';
 
 export type VsOpenScenario = {
@@ -9,27 +11,20 @@ export type VsOpenScenario = {
   range: Range;
 };
 
-// BB vs BTN open: callレンジ広め、3betはプレミアム+ブラフ
-const BB_vs_BTN = tokensToRangeWithActions({
-  call: [
-    '22-JJ',
-    'ATo+', 'A9s+', 'A5s-A2s',
-    'KJo+', 'KTs+', 'K9s',
-    'QJo', 'QTs+', 'Q9s',
-    'JTs', 'J9s',
-    'T9s', 'T8s',
-    '98s', '97s',
-    '87s', '86s',
-    '76s', '75s',
-    '65s', '64s',
-    '54s',
-  ],
-  raise: [
-    'QQ+', 'AKs', 'AKo',
-    'A5s', 'A4s',  // ブラフ3bet
-    'K9s',          // ブラフ
-  ],
-});
+function listsToRange(spec: { call: HandClass[]; raise: HandClass[] }): Range {
+  const range: Range = {};
+  for (const h of spec.call) range[h] = { call: 1 };
+  for (const h of spec.raise) range[h] = { raise: 1 }; // raise 優先で上書き
+  return range;
+}
+
+// BB defense vs BTN: ヨコサワ由来データ（mode 非依存）
+const BB_DEF_RAISE: HandClass[] = ['AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo', 'A5s', 'A4s'];
+const BB_DEF_CALL: HandClass[] =
+  [...TIER2, ...TIER3, ...TIER4, ...TIER5, ...TIER6, ...TIER7, ...BB_CALL]
+    .filter((h) => h !== 'A5s' && h !== 'A4s');
+
+const BB_vs_BTN: Range = listsToRange({ call: BB_DEF_CALL, raise: BB_DEF_RAISE });
 
 // BB vs CO open
 const BB_vs_CO = tokensToRangeWithActions({

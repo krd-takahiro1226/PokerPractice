@@ -1,8 +1,8 @@
 import { cardsToHandClass } from '../handNotation';
-import { RFI_SCENARIOS } from '../ranges/rfi';
+import { getRfiScenarios } from '../ranges/rfi';
 import { getVsOpen } from '../ranges/vsOpen';
 import { primaryAction } from '../ranges/types';
-import type { GameState, PlayerAction } from '../game/types';
+import type { GameState, GameConfig, PlayerAction } from '../game/types';
 import type { LegalActions } from '../game/engine';
 
 /** プリフロップのアクション決定。 */
@@ -64,7 +64,7 @@ function decidePreflopRFI(
 ): PlayerAction {
   const player = state.players[playerId];
   const pos = player.pos;
-  const scenario = RFI_SCENARIOS.find((s) => s.heroPos === pos);
+  const scenario = getRfiScenarios(state.config.mode).find((s) => s.heroPos === pos);
 
   if (!scenario) {
     // BTNはレンジなし（いないはずだが安全策）
@@ -239,5 +239,3 @@ function safeDefault(legal: LegalActions, state: GameState): PlayerAction {
   return { type: 'fold' };
 }
 
-// 型参照のためのインポート
-type GameConfig = { difficulty: 'easy' | 'normal' | 'hard' };

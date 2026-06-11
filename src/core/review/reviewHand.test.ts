@@ -7,6 +7,7 @@ function makeSavedHand(overrides: Partial<SavedHand> = {}): SavedHand {
   const defaults: SavedHand = {
     id: 'test-1',
     ts: Date.now(),
+    mode: 'tournament',
     difficulty: 'normal',
     heroPos: 'BTN',
     heroHole: ['As', 'Kh'],
@@ -299,5 +300,51 @@ describe('reviewHand - 空ログ', () => {
     });
     const reviews = reviewHand(hand);
     expect(reviews).toEqual([]);
+  });
+});
+
+describe('reviewHand - モード対応', () => {
+  it('cash-noante: UTG で tier5 ハンド(22)をオープン → mistake', () => {
+    // 22 は tier5 = cash-noante UTG レンジ外
+    const hand = makeSavedHand({
+      mode: 'cash-noante',
+      heroPos: 'UTG',
+      heroHole: ['2s', '2h'],
+      log: [
+        {
+          street: 'preflop',
+          playerId: 0,
+          pos: 'UTG',
+          action: 'raise',
+          amount: 2.5,
+          potAfter: 4,
+        },
+      ],
+    });
+    const reviews = reviewHand(hand);
+    expect(reviews.length).toBeGreaterThan(0);
+    expect(reviews[0].verdict).toBe('mistake');
+  });
+
+  it('tournament: UTG で tier5 ハンド(22)をオープン → good', () => {
+    // 22 は tier5 = tournament UTG レンジ内
+    const hand = makeSavedHand({
+      mode: 'tournament',
+      heroPos: 'UTG',
+      heroHole: ['2s', '2h'],
+      log: [
+        {
+          street: 'preflop',
+          playerId: 0,
+          pos: 'UTG',
+          action: 'raise',
+          amount: 2.5,
+          potAfter: 4,
+        },
+      ],
+    });
+    const reviews = reviewHand(hand);
+    expect(reviews.length).toBeGreaterThan(0);
+    expect(reviews[0].verdict).toBe('good');
   });
 });
