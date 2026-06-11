@@ -1,0 +1,135 @@
+import type { GameConfig, GameState } from './types';
+import type { GameMode } from '../ranges/mode';
+
+export type SessionFormat = 'tournament' | 'cash';
+
+export type BlindLevel = { sb: number; bb: number; ante: number };
+
+export type SessionConfig = {
+  format: SessionFormat;
+  mode: GameMode;
+  difficulty: GameConfig['difficulty'];
+  startingStack: number;
+  /**
+   * tournament: レベル表。cash: 単一固定レベルを1要素の配列で持つ。
+   */
+  blindLevels: BlindLevel[];
+  /**
+   * tournament: 何ハンドでレベルアップするか。
+   * cash: 実質無視（レベル固定）。Infinity 相当を表すには Number.POSITIVE_INFINITY を使用。
+   */
+  handsPerLevel: number;
+};
+
+// format と mode の整合は UI 側で制約する（core では検証しない）:
+//   format='tournament' → mode='tournament' 固定
+//   format='cash'       → mode は 'cash-ante' | 'cash-noante' から選択
+
+export type SessionState = {
+  config: SessionConfig;
+  seatStacks: number[];     // 長さ6。ハンド間で持ち越す現在スタック
+  handNumber: number;       // セッション内通し番号（1始まり。0=開始前）
+  currentLevel: number;     // 0始まり（blindLevels の index）
+  stackCurve: number[];     // ハンド終了時のヒーロー(seat0)スタック推移
+  status: 'active' | 'bust' | 'win' | 'quit';
+};
+
+// ─── デフォルトのブラインドレベル表 ────────────────────────────────────────────
+
+export const DEFAULT_TOURNAMENT_LEVELS: BlindLevel[] = [
+  { sb: 0.5, bb: 1, ante: 1 },   // level1
+  { sb: 1, bb: 2, ante: 2 },     // level2
+  { sb: 1.5, bb: 3, ante: 3 },
+  { sb: 2, bb: 5, ante: 5 },
+  { sb: 3, bb: 8, ante: 8 },
+  { sb: 5, bb: 12, ante: 12 },
+];
+
+export const DEFAULT_HANDS_PER_LEVEL = 10;
+
+export const CASH_LEVEL_ANTE: BlindLevel = { sb: 0.5, bb: 1, ante: 1 };
+export const CASH_LEVEL_NOANTE: BlindLevel = { sb: 0.5, bb: 1, ante: 0 };
+
+// ─── セッション操作関数 ─────────────────────────────────────────────────────────
+
+/** セッション開始: 全席 startingStack。 */
+export function startSession(config: SessionConfig): SessionState {
+  return {
+    config,
+    seatStacks: Array(6).fill(config.startingStack),
+    handNumber: 0,
+    currentLevel: 0,
+    stackCurve: [config.startingStack],
+    status: 'active',
+  };
+}
+
+/** 現在のブラインドレベルから GameConfig を構築（startHand に渡す）。 */
+export function configForHand(s: SessionState): GameConfig {
+  const level = s.config.blindLevels[s.currentLevel];
+  return {
+    difficulty: s.config.difficulty,
+    mode: s.config.mode,
+    startingStack: s.config.startingStack,
+    sb: level.sb,
+    bb: level.bb,
+    ante: level.ante,
+  };
+}
+
+/** ハンド終了後の GameState を受け取り、スタック持ち越し・レベル更新・終了判定を行う。 */
+export function commitHandResult(s: SessionState, ended: GameState): SessionState {
+  // 1. seatStacks を resolveShowdown 後の最終スタックで更新
+  const seatStacks = ended.players.map((p) => p.stack);
+
+  // 2. stackCurve にヒーロー(seat0)のスタックを追記
+  const stackCurve = [...s.stackCurve, seatStacks[0]];
+
+  // 3. handNumber をインクリメント
+  const handNumber = s.handNumber + 1;
+
+  // 4. tournament のレベルアップ判定
+  let currentLevel = s.currentLevel;
+  if (
+    s.config.format === 'tournament' &&
+    s.config.handsPerLevel > 0 &&
+    handNumber % s.config.handsPerLevel === 0 &&
+    currentLevel < s.config.blindLevels.length - 1
+  ) {
+    currentLevel += 1;
+  }
+
+  // 5. 終了判定
+  let status = s.status;
+  if (status === 'active') {
+    if (seatStacks[0] <= 0) {
+      // ヒーローがバスト
+      status = 'bust';
+    } else if (s.config.format === 'tournament') {
+      // 他5席が全員スタック0 → ヒーロー独り勝ち
+      const othersBusted = seatStacks.slice(1).every((st) => st <= 0);
+      if (othersBusted) {
+        status = 'win';
+      }
+    } else {
+      // cash: 自動終了なし（ユーザが quit するまで active）
+      // ヒーロースタック0のみ bust
+    }
+  }
+
+  return {
+    ...s,
+    seatStacks,
+    handNumber,
+    currentLevel,
+    stackCurve,
+    status,
+  };
+}
+
+/** 次ハンドを開始すべきか（active かつ有効スタック(>0)の席が2以上）。 */
+export function canContinue(s: SessionState): boolean {
+  if (s.status !== 'active') return false;
+  const validSeats = s.seatStacks.filter((st) => st > 0).length;
+  return validSeats >= 2;
+}

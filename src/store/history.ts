@@ -4,6 +4,8 @@ import type { HandLogEntry, HandResult, GameConfig } from '../core/game/types';
 import type { Card } from '../core/cards';
 import type { Position } from '../core/ranges/types';
 import type { GameMode } from '../core/ranges/mode';
+import { currentUserId } from './persistence';
+import { insertHand } from './remote/hands';
 
 export type SavedHand = {
   id: string;
@@ -30,7 +32,8 @@ export const useHistory = create<HistoryState>()(
   persist(
     (set) => ({
       hands: [],
-      add: (hand) =>
+      add: (hand) => {
+        // localStorage 系統は常に更新（ゲスト時の正データ、ログイン時のローカルキャッシュ）
         set((s) => {
           const next = [hand, ...s.hands].slice(0, MAX_HANDS);
           try {
@@ -41,7 +44,15 @@ export const useHistory = create<HistoryState>()(
             }
             throw e;
           }
-        }),
+        });
+        // ログイン中なら Supabase にも非同期 insert（失敗は握りつぶす）
+        const uid = currentUserId();
+        if (uid !== null) {
+          insertHand(uid, hand).catch(() => {
+            // ネットワーク失敗はローカル state を保持したまま無視
+          });
+        }
+      },
       clear: () => set({ hands: [] }),
     }),
     {

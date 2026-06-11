@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Brain, Coins, Grid3x3, Home, Percent, Swords, Target, type LucideIcon } from 'lucide-react';
+import { BarChart2, BookOpen, Brain, Coins, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
 import { accuracy, useProgress } from '../store/progress';
 import { cn } from '../lib/cn';
+import { AuthButton } from './AuthButton';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
@@ -18,12 +19,15 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/pot-odds', label: 'オッズ & MDF', icon: Coins },
       { to: '/cbet', label: 'CB', icon: Target },
       { to: '/quiz', label: 'クイズ', icon: Brain },
+      { to: '/stats', label: '統計', icon: BarChart2 },
+      { to: '/review', label: '復習', icon: BookOpen },
     ],
   },
   {
     section: 'プレイ',
     items: [
       { to: '/versus', label: '対戦', icon: Swords },
+      { to: '/sessions', label: '成績', icon: Trophy },
     ],
   },
 ];
@@ -95,6 +99,9 @@ export function AppShell() {
           ))}
         </nav>
         <OverallStat />
+        <div className="mt-2">
+          <AuthButton />
+        </div>
       </aside>
 
       {/* Main */}
@@ -102,6 +109,9 @@ export function AppShell() {
         {/* Mobile header */}
         <header className="flex items-center justify-between border-b border-border bg-surface/60 px-4 py-3 backdrop-blur md:hidden">
           <Logo />
+          <div className="w-40">
+            <AuthButton />
+          </div>
         </header>
 
         <main className="flex-1 px-4 pb-24 pt-5 sm:px-6 md:pb-8 md:pt-8">

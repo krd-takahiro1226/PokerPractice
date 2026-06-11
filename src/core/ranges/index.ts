@@ -6,6 +6,9 @@ export * from './types';
 export * from './expand';
 export * from './mode';
 export * from './yokosawa';
+export * from './vsOpen';
+export * from './seats';
+export * from './effective';
 export { RFI_SCENARIOS, getRfiScenarios, getRfiRange };
 
 export const ALL_SCENARIOS: Scenario[] = [...RFI_SCENARIOS]; // tournament 既定（後方互換）

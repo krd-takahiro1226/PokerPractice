@@ -4,6 +4,7 @@ import { getVsOpen } from '../ranges/vsOpen';
 import { primaryAction } from '../ranges/types';
 import { estimateEquityVsRange } from '../ai/estimateEquity';
 import { potOdds as calcPotOdds, mdf as calcMdf } from '../potOdds';
+import { getEffectiveRange, rfiKey, vsOpenKey, type CustomRanges } from '../ranges/effective';
 import type { Street, PlayerActionType, HandLogEntry } from '../game/types';
 import type { SavedHand } from '../../store/history';
 import type { Position } from '../ranges/types';
@@ -25,14 +26,14 @@ export type DecisionReview = {
   };
 };
 
-export function reviewHand(hand: SavedHand): DecisionReview[] {
+export function reviewHand(hand: SavedHand, custom?: CustomRanges): DecisionReview[] {
   const reviews: DecisionReview[] = [];
   const heroLogs = hand.log
     .map((entry, i) => ({ entry, i }))
     .filter(({ entry }) => entry.playerId === 0);
 
   for (const { entry, i } of heroLogs) {
-    const review = reviewDecision(hand, entry, i);
+    const review = reviewDecision(hand, entry, i, custom);
     if (review) reviews.push(review);
   }
 
@@ -43,9 +44,10 @@ function reviewDecision(
   hand: SavedHand,
   entry: HandLogEntry,
   logIndex: number,
+  custom?: CustomRanges,
 ): DecisionReview | null {
   if (entry.street === 'preflop') {
-    return reviewPreflopDecision(hand, entry, logIndex);
+    return reviewPreflopDecision(hand, entry, logIndex, custom);
   }
   return reviewPostflopDecision(hand, entry, logIndex);
 }
@@ -54,6 +56,7 @@ function reviewPreflopDecision(
   hand: SavedHand,
   entry: HandLogEntry,
   logIndex: number,
+  custom?: CustomRanges,
 ): DecisionReview {
   const handClass = cardsToHandClass(hand.heroHole[0], hand.heroHole[1]);
   const heroPos = hand.heroPos;
@@ -65,10 +68,10 @@ function reviewPreflopDecision(
   );
 
   if (!hasOpener) {
-    return reviewRFI(hand, entry, logIndex, handClass, heroPos);
+    return reviewRFI(hand, entry, logIndex, handClass, heroPos, custom);
   }
 
-  return reviewVsOpen(hand, entry, logIndex, handClass, heroPos, logsBeforeHero);
+  return reviewVsOpen(hand, entry, logIndex, handClass, heroPos, logsBeforeHero, custom);
 }
 
 function reviewRFI(
@@ -77,10 +80,12 @@ function reviewRFI(
   logIndex: number,
   handClass: string,
   heroPos: Position,
+  custom?: CustomRanges,
 ): DecisionReview {
-  const scenario = getScenarioForMode(`RFI_${heroPos}`, hand.mode ?? 'tournament');
+  const mode = hand.mode ?? 'tournament';
+  const range = getEffectiveRange(rfiKey(heroPos), mode, custom);
 
-  if (!scenario) {
+  if (!range) {
     return {
       logIndex,
       street: 'preflop',
@@ -91,7 +96,7 @@ function reviewRFI(
     };
   }
 
-  const rangeAction = scenario.range[handClass];
+  const rangeAction = range[handClass];
   const isInRange = (rangeAction?.raise ?? 0) > 0;
   const heroRaised = entry.action === 'raise' || entry.action === 'bet';
   const heroFolded = entry.action === 'fold';
@@ -158,6 +163,7 @@ function reviewVsOpen(
   handClass: string,
   heroPos: Position,
   logsBeforeHero: HandLogEntry[],
+  custom?: CustomRanges,
 ): DecisionReview {
   // Find the opener's position
   const openerLog = logsBeforeHero.find(
@@ -176,9 +182,10 @@ function reviewVsOpen(
     };
   }
 
-  const scenario = getVsOpen(heroPos, openerPos);
+  const mode = hand.mode ?? 'tournament';
+  const range = getEffectiveRange(vsOpenKey(openerPos as Position, heroPos), mode, custom);
 
-  if (!scenario) {
+  if (!range) {
     return {
       logIndex,
       street: 'preflop',
@@ -189,7 +196,7 @@ function reviewVsOpen(
     };
   }
 
-  const rangeAction = scenario.range[handClass];
+  const rangeAction = range[handClass];
   const pa = primaryAction(rangeAction);
   const heroAction = entry.action;
   const heroFolded = heroAction === 'fold';
@@ -484,7 +491,7 @@ function getBoardAtStreet(hand: SavedHand, street: Street): Card[] {
   }
 }
 
-function buildVillainRangeFromLog(hand: SavedHand): Record<string, number> {
+function buildVillainRangeFromLog(hand: SavedHand, _custom?: CustomRanges): Record<string, number> {
   // Find the main villain (non-hero player still active at showdown or last to act)
   const preflopLogs = hand.log.filter((l) => l.street === 'preflop' && l.playerId !== 0);
 

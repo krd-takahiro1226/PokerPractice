@@ -21,14 +21,14 @@ describe('yokosawa ティアデータ正当性', () => {
   });
 
   it('各ティアの件数が ground truth と一致する', () => {
-    expect(TIER1).toHaveLength(6);
-    expect(TIER2).toHaveLength(7);
-    expect(TIER3).toHaveLength(10);
-    expect(TIER4).toHaveLength(14);
-    expect(TIER5).toHaveLength(10);
-    expect(TIER6).toHaveLength(22);
+    expect(TIER1).toHaveLength(5);
+    expect(TIER2).toHaveLength(8);
+    expect(TIER3).toHaveLength(7);
+    expect(TIER4).toHaveLength(16);
+    expect(TIER5).toHaveLength(11);
+    expect(TIER6).toHaveLength(23);
     expect(TIER7).toHaveLength(13);
-    expect(BB_CALL).toHaveLength(27);
+    expect(BB_CALL).toHaveLength(28);
   });
 
   it('TIERS 配列の長さは 7', () => {

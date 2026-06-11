@@ -21,6 +21,7 @@ import type { Action } from '../core/ranges/types';
 import { pick, randInt } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
+import { useAttempts } from '../store/attempts';
 
 type Tab = 'draw' | 'reqEquity' | 'mdf';
 
@@ -75,6 +76,7 @@ export function PotOdds() {
 function DrawView() {
   const recordPotOdds = useProgress((s) => s.recordPotOdds);
   const stats = useProgress((s) => s.potOdds);
+  const record = useAttempts((s) => s.record);
   const [drill, setDrill] = useState<DrawDrill>(() => genDrawDrill());
   const [answer, setAnswer] = useState<Action | null>(null);
 
@@ -90,6 +92,13 @@ function DrawView() {
     if (answered) return;
     setAnswer(a);
     recordPotOdds((a === 'call') === shouldCall);
+    record({
+      drillKind: 'potOdds',
+      scenarioId: `potOdds:pot=${drill.pot},call=${drill.toCall},outs=${drill.outs},street=${drill.street}`,
+      expected: shouldCall ? 'call' : 'fold',
+      answered: a,
+      correct: (a === 'call') === shouldCall,
+    });
   }
 
   function next() {
@@ -181,6 +190,7 @@ function DrawView() {
 function ReqEquityView() {
   const recordReqEquity = useProgress((s) => s.recordReqEquity);
   const stats = useProgress((s) => s.reqEquity);
+  const record = useAttempts((s) => s.record);
   const [drill, setDrill] = useState<ReqEquityDrill>(() => genReqEquityDrill());
   const [chosen, setChosen] = useState<number | null>(null);
 
@@ -192,6 +202,13 @@ function ReqEquityView() {
     const isCorrect = Math.abs(value - drill.answer) < 0.001;
     setChosen(value);
     recordReqEquity(isCorrect);
+    record({
+      drillKind: 'reqEquity',
+      scenarioId: `reqEquity:pot=${drill.pot},bet=${drill.bet}`,
+      expected: `${(drill.answer * 100).toFixed(1)}%`,
+      answered: `${(value * 100).toFixed(1)}%`,
+      correct: isCorrect,
+    });
   }
 
   function next() {
@@ -293,6 +310,7 @@ const MDF_TABLE = [
 function MdfView() {
   const recordMdf = useProgress((s) => s.recordMdf);
   const stats = useProgress((s) => s.mdf);
+  const record = useAttempts((s) => s.record);
   const [drill, setDrill] = useState<MdfDrill>(() => genMdfDrill());
   const [chosen, setChosen] = useState<number | null>(null);
 
@@ -304,6 +322,13 @@ function MdfView() {
     const isCorrect = Math.abs(value - drill.answer) < 0.001;
     setChosen(value);
     recordMdf(isCorrect);
+    record({
+      drillKind: 'mdf',
+      scenarioId: `mdf:pot=${drill.pot},bet=${drill.bet}`,
+      expected: `${(drill.answer * 100).toFixed(1)}%`,
+      answered: `${(value * 100).toFixed(1)}%`,
+      correct: isCorrect,
+    });
   }
 
   function next() {

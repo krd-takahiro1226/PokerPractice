@@ -89,7 +89,11 @@ function totalPot(state: GameState): number {
   return state.pot + streetCommits;
 }
 
-export function startHand(prev: GameState | null, config: GameConfig): GameState {
+export function startHand(
+  prev: GameState | null,
+  config: GameConfig,
+  seatStacks?: number[],
+): GameState {
   const rng = config.rng ?? Math.random;
 
   const handNumber = prev ? prev.handNumber + 1 : 1;
@@ -99,12 +103,12 @@ export function startHand(prev: GameState | null, config: GameConfig): GameState
   const posMap = assignPositions(buttonSeat);
   const deck = shuffleDeck(rng);
 
-  // 全員 startingStack にリセット
+  // seatStacks 指定時は各席の初期スタックに使う。省略時は config.startingStack。
   let players: PlayerState[] = Array.from({ length: 6 }, (_, id) => ({
     id,
     isHero: id === 0,
     pos: posMap[id],
-    stack: config.startingStack,
+    stack: seatStacks ? seatStacks[id] : config.startingStack,
     hole: null,
     committedTotal: 0,
     committedStreet: 0,

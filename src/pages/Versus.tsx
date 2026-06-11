@@ -8,14 +8,27 @@ import { PlayingCard } from '../components/PlayingCard';
 import { PokerTable } from '../components/versus/PokerTable';
 import { BetControls } from '../components/versus/BetControls';
 import { useVersusGame } from '../hooks/useVersusGame';
+import { useVersusSession } from '../hooks/useVersusSession';
 import { GAME_MODES, GAME_MODE_SHORT } from '../core/ranges';
 import { useHistory } from '../store/history';
 import { reviewHand } from '../core/review/reviewHand';
+import { useCustomRanges } from '../store/customRanges';
 import type { SavedHand } from '../store/history';
 import type { DecisionReview } from '../core/review/reviewHand';
+import {
+  DEFAULT_TOURNAMENT_LEVELS,
+  CASH_LEVEL_ANTE,
+  CASH_LEVEL_NOANTE,
+  type SessionConfig,
+  type SessionFormat,
+} from '../core/game/session';
+import { LineChart } from '../components/charts/LineChart';
 import { cn } from '../lib/cn';
+import type { GameMode } from '../core/ranges/mode';
+import type { GameConfig } from '../core/game/types';
 
 type Tab = 'game' | 'history';
+type VersusMode = 'single' | 'session';
 
 // Verdict styling
 const VERDICT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
@@ -29,6 +42,7 @@ const VERDICT_STYLE: Record<string, { bg: string; text: string; label: string }>
 
 export function Versus() {
   const [tab, setTab] = useState<Tab>('game');
+  const [versusMode, setVersusMode] = useState<VersusMode>('single');
   const params = useParams();
   const navigate = useNavigate();
 
@@ -46,22 +60,47 @@ export function Versus() {
       />
 
       {/* Tabs */}
-      <div className="mb-5 inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
-        {(['game', 'history'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              'rounded-lg px-4 py-1.5 text-sm font-medium transition',
-              tab === t ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
-            )}
-          >
-            {t === 'game' ? '対戦' : '履歴'}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
+          {(['game', 'history'] as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                'rounded-lg px-4 py-1.5 text-sm font-medium transition',
+                tab === t ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
+              )}
+            >
+              {t === 'game' ? '対戦' : '履歴'}
+            </button>
+          ))}
+        </div>
+
+        {/* 単発 / セッション トグル（対戦タブのみ表示） */}
+        {tab === 'game' && (
+          <div className="inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
+            {(['single', 'session'] as VersusMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setVersusMode(m)}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                  versusMode === m ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
+                )}
+              >
+                {m === 'single' ? '単発' : 'セッション'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {tab === 'game' ? <GameTab /> : <HistoryTab />}
+      {tab === 'game'
+        ? versusMode === 'single'
+          ? <GameTab />
+          : <SessionTab />
+        : <HistoryTab />
+      }
     </div>
   );
 }
@@ -207,6 +246,298 @@ function GameTab() {
   );
 }
 
+// ─── Session Tab ───────────────────────────────────────────────────────────────
+
+const SESSION_FORMAT_LABEL: Record<SessionFormat, string> = {
+  tournament: 'トーナメント',
+  cash: 'キャッシュ',
+};
+
+const SESSION_DIFFICULTY_LABEL: Record<string, string> = {
+  easy: 'やさしい',
+  normal: 'ふつう',
+  hard: 'つよい',
+};
+
+const SESSION_RESULT_LABEL: Record<string, string> = {
+  bust: 'バスト',
+  win: '優勝!',
+  quit: '途中終了',
+};
+
+function SessionTab() {
+  const ctrl = useVersusSession();
+  const { session, game, legal, isHeroTurn, heroAct, nextHand, quit, start } = ctrl;
+  const [started, setStarted] = useState(false);
+
+  // フォーム状態
+  const [format, setFormat] = useState<SessionFormat>('tournament');
+  const [startingStack, setStartingStack] = useState(100);
+  const [difficulty, setDifficulty] = useState<GameConfig['difficulty']>('normal');
+
+  // format → mode の自動マッピング
+  const modeForFormat = (f: SessionFormat): GameMode =>
+    f === 'tournament' ? 'tournament' : 'cash-ante';
+  const [cashAnteMode, setCashAnteMode] = useState<'cash-ante' | 'cash-noante'>('cash-ante');
+
+  const handleStart = () => {
+    const selectedMode: GameMode = format === 'tournament' ? 'tournament' : cashAnteMode;
+    const levels =
+      format === 'tournament'
+        ? DEFAULT_TOURNAMENT_LEVELS
+        : [selectedMode === 'cash-ante' ? CASH_LEVEL_ANTE : CASH_LEVEL_NOANTE];
+
+    const config: SessionConfig = {
+      format,
+      mode: selectedMode,
+      difficulty,
+      startingStack,
+      blindLevels: levels,
+      handsPerLevel: format === 'tournament' ? 10 : Number.POSITIVE_INFINITY,
+    };
+    start(config);
+    setStarted(true);
+  };
+
+  const isHandOver = game.street === 'showdown' && game.result !== null;
+  const sessionOver = session.status !== 'active';
+
+  const totalPot = game.pot + game.players.reduce((s, p) => s + p.committedStreet, 0);
+
+  const streetLabel: Record<string, string> = {
+    preflop: 'プリフロップ',
+    flop: 'フロップ',
+    turn: 'ターン',
+    river: 'リバー',
+    showdown: 'ショーダウン',
+  };
+
+  // セッション未開始: フォーム表示
+  if (!started) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Panel className="p-5">
+          <div className="mb-4 text-sm font-semibold text-text">セッション設定</div>
+
+          {/* 形式 */}
+          <div className="mb-3">
+            <div className="mb-1.5 text-xs text-muted">形式</div>
+            <div className="flex gap-2">
+              {(['tournament', 'cash'] as SessionFormat[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFormat(f)}
+                  className={cn(
+                    'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                    format === f ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                  )}
+                >
+                  {SESSION_FORMAT_LABEL[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* キャッシュのみ: ante 有無 */}
+          {format === 'cash' && (
+            <div className="mb-3">
+              <div className="mb-1.5 text-xs text-muted">ante</div>
+              <div className="flex gap-2">
+                {(['cash-ante', 'cash-noante'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setCashAnteMode(m)}
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                      cashAnteMode === m ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                    )}
+                  >
+                    {m === 'cash-ante' ? 'ante あり' : 'ante なし'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 開始スタック */}
+          <div className="mb-3">
+            <div className="mb-1.5 text-xs text-muted">
+              開始スタック{format === 'tournament' ? '（チップ）' : '（bb）'}
+            </div>
+            <div className="flex gap-2">
+              {[50, 100, 200].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStartingStack(s)}
+                  className={cn(
+                    'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                    startingStack === s ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                  )}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 難易度 */}
+          <div className="mb-4">
+            <div className="mb-1.5 text-xs text-muted">難易度</div>
+            <div className="flex gap-2">
+              {(['easy', 'normal', 'hard'] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDifficulty(d)}
+                  className={cn(
+                    'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                    difficulty === d ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                  )}
+                >
+                  {SESSION_DIFFICULTY_LABEL[d]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Button onClick={handleStart}>セッション開始</Button>
+        </Panel>
+      </div>
+    );
+  }
+
+  // セッション終了時
+  if (sessionOver) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Panel className="border-accent/30 bg-accent/5 p-5">
+          <div className="text-lg font-bold text-accent-bright">
+            セッション終了 — {SESSION_RESULT_LABEL[session.status] ?? session.status}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-4 text-sm text-muted">
+            <span>プレイハンド数: <strong className="text-text">{session.handNumber}</strong></span>
+            <span>
+              最終スタック:{' '}
+              <strong className="text-text">
+                {session.seatStacks[0].toFixed(0)}
+              </strong>
+              <span className="ml-1 text-xs">
+                ({session.seatStacks[0] >= session.config.startingStack ? '+' : ''}
+                {(session.seatStacks[0] - session.config.startingStack).toFixed(0)})
+              </span>
+            </span>
+          </div>
+          {session.stackCurve.length > 1 && (
+            <div className="mt-3">
+              <LineChart
+                data={session.stackCurve}
+                baseline={session.config.startingStack}
+                width={480}
+                height={120}
+              />
+            </div>
+          )}
+          <div className="mt-4">
+            <Button onClick={() => setStarted(false)}>新しいセッション</Button>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  // セッション進行中
+  return (
+    <div className="flex flex-col gap-4">
+      {/* セッション状態バー */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+        <span className="font-semibold text-text">
+          {SESSION_FORMAT_LABEL[session.config.format]} セッション
+        </span>
+        <span>ハンド #{session.handNumber + 1}</span>
+        <span>
+          レベル {session.currentLevel + 1}: {session.config.blindLevels[session.currentLevel]?.bb}bb
+        </span>
+        <span>スタック: {session.seatStacks[0].toFixed(0)}</span>
+        <button
+          onClick={quit}
+          className="ml-auto rounded-lg border border-rose-500/30 px-2 py-1 text-rose-400 hover:bg-rose-500/10"
+        >
+          セッション終了
+        </button>
+      </div>
+
+      {/* スタック推移（簡易） */}
+      {session.stackCurve.length > 2 && (
+        <div className="rounded-xl border border-border bg-surface-2/30 px-3 py-2">
+          <LineChart
+            data={session.stackCurve}
+            baseline={session.config.startingStack}
+            width={480}
+            height={80}
+          />
+        </div>
+      )}
+
+      {/* ポーカーテーブル */}
+      <Panel className="overflow-visible p-4">
+        <div className="mb-1 text-right text-[10px] text-muted">
+          {streetLabel[game.street]}
+        </div>
+        <PokerTable state={game} />
+      </Panel>
+
+      {/* ハンド結果 */}
+      {isHandOver && game.result && (
+        <Panel className="border-accent/30 bg-accent/5 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold text-accent-bright">ハンド終了</div>
+              <div className="mt-1 text-xs text-muted">
+                {game.result.endedAtStreet !== 'showdown' ? 'フォールド勝ち' : 'ショーダウン'}
+              </div>
+              {game.result.winners.map((w) => {
+                const p = game.players[w.playerId];
+                return (
+                  <div key={w.playerId} className="mt-1 text-sm">
+                    <span className={p.isHero ? 'font-bold text-accent-bright' : 'text-text'}>
+                      {p.isHero ? 'あなた' : p.pos}
+                    </span>
+                    <span className="text-muted"> が {w.amount.toFixed(1)}bb 獲得</span>
+                  </div>
+                );
+              })}
+            </div>
+            <Button size="sm" onClick={nextHand}>
+              <RefreshCw size={14} />
+              次のハンド
+            </Button>
+          </div>
+        </Panel>
+      )}
+
+      {/* ヒーローのアクション */}
+      {isHeroTurn && legal && (
+        <Panel className="p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+            あなたの番
+          </div>
+          <BetControls
+            legal={legal}
+            potForSizing={totalPot}
+            onAction={heroAct}
+          />
+        </Panel>
+      )}
+
+      {/* CPU 思考中 */}
+      {!isHeroTurn && !isHandOver && (
+        <div className="text-center text-sm text-muted animate-pulse">
+          CPU が考え中…
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── History Tab ───────────────────────────────────────────────────────────────
 
 function HistoryTab() {
@@ -326,7 +657,8 @@ function HandReviewPage({ id, onBack }: { id: string; onBack: () => void }) {
 }
 
 function HandReviewPanel({ hand, onBack }: { hand: SavedHand; onBack: () => void }) {
-  const reviews = reviewHand(hand);
+  const custom = useCustomRanges((s) => s.ranges);
+  const reviews = reviewHand(hand, custom);
 
   const streetOrder = ['preflop', 'flop', 'turn', 'river', 'showdown'] as const;
   const logsByStreet = streetOrder.reduce(

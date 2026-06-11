@@ -9,6 +9,7 @@ import { CBET_QUESTIONS, type CbetQuestion, type CbetStrategy } from '../data/cb
 import { pick } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
+import { useAttempts } from '../store/attempts';
 
 const STRATEGY_LABEL: Record<CbetStrategy, string> = {
   high: '高頻度CB（レンジベット気味）',
@@ -28,6 +29,7 @@ function nextQuestion(current?: CbetQuestion): CbetQuestion {
 export function Cbet() {
   const recordCbet = useProgress((s) => s.recordCbet);
   const stats = useProgress((s) => s.cbet);
+  const record = useAttempts((s) => s.record);
   const [q, setQ] = useState<CbetQuestion>(() => nextQuestion());
   const [answer, setAnswer] = useState<CbetStrategy | null>(null);
 
@@ -38,6 +40,13 @@ export function Cbet() {
     if (answered) return;
     setAnswer(value);
     recordCbet(value === q.answer);
+    record({
+      drillKind: 'cbet',
+      scenarioId: q.id,
+      expected: q.answer,
+      answered: value,
+      correct: value === q.answer,
+    });
   }
 
   function next() {

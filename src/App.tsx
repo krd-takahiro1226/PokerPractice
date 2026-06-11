@@ -7,6 +7,9 @@ import { PotOdds } from './pages/PotOdds';
 import { Quiz } from './pages/Quiz';
 import { Cbet } from './pages/Cbet';
 import { Versus } from './pages/Versus';
+import { Stats } from './pages/Stats';
+import { Review } from './pages/Review';
+import { Sessions } from './pages/Sessions';
 
 const router = createBrowserRouter([
   {
@@ -19,6 +22,9 @@ const router = createBrowserRouter([
       { path: 'pot-odds', element: <PotOdds /> },
       { path: 'cbet', element: <Cbet /> },
       { path: 'quiz', element: <Quiz /> },
+      { path: 'stats', element: <Stats /> },
+      { path: 'review', element: <Review /> },
+      { path: 'sessions', element: <Sessions /> },
       {
         path: 'versus',
         children: [

@@ -1,5 +1,4 @@
-import { tokensToRangeWithActions } from './expand';
-import { TIER2, TIER3, TIER4, TIER5, TIER6, TIER7, BB_CALL } from './yokosawa';
+import { TIERS, BB_CALL } from './yokosawa';
 import type { HandClass } from '../handNotation';
 import type { Position, Range } from './types';
 
@@ -11,142 +10,63 @@ export type VsOpenScenario = {
   range: Range;
 };
 
-function listsToRange(spec: { call: HandClass[]; raise: HandClass[] }): Range {
+/** アクション順（プリフロップ）。opener より後ろ＝この配列でindexが大きい側。 */
+const POS_ORDER: Position[] = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+
+/** opener の使用最大tier（=後ろ人数ベース）。mode.ts の BASE_MAX_TIER と一致させる。 */
+const OPENER_BASE_TIER: Record<Position, number> = {
+  UTG: 5, HJ: 5, CO: 6, BTN: 7, SB: 7, BB: 0,
+};
+
+/** value/bluff 3bet（固定・mode非依存・heroPos非依存）。 */
+const BB_DEF_RAISE: HandClass[] = ['AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo', 'A5s', 'A4s'];
+const RAISE_SET = new Set<HandClass>(BB_DEF_RAISE);
+
+/** tier K..M（1始まり, 両端含む）を flat 展開。 */
+function tierSlice(fromTier1: number, toTier1: number): HandClass[] {
+  if (toTier1 < fromTier1) return [];
+  return TIERS.slice(fromTier1 - 1, toTier1).flat();
+}
+
+/** (hero, opener) → defense Range を導出。 */
+function deriveDefense(heroPos: Position, openerPos: Position): Range {
+  const b = OPENER_BASE_TIER[openerPos];
+  const isBB = heroPos === 'BB';
+  // call の最大tier
+  const callMaxTier = isBB ? Math.min(7, b + 1) : b;
+  const callHands: HandClass[] = tierSlice(2, callMaxTier).filter((h) => !RAISE_SET.has(h));
+  // BB が BTN のオープンに対するときのみ bbCall 層を追加
+  if (isBB && openerPos === 'BTN') {
+    for (const h of BB_CALL) if (!RAISE_SET.has(h)) callHands.push(h);
+  }
   const range: Range = {};
-  for (const h of spec.call) range[h] = { call: 1 };
-  for (const h of spec.raise) range[h] = { raise: 1 }; // raise 優先で上書き
+  for (const h of callHands) range[h] = { call: 1 };
+  for (const h of BB_DEF_RAISE) range[h] = { raise: 1 }; // raise 優先で上書き
   return range;
 }
 
-// BB defense vs BTN: ヨコサワ由来データ（mode 非依存）
-const BB_DEF_RAISE: HandClass[] = ['AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo', 'A5s', 'A4s'];
-const BB_DEF_CALL: HandClass[] =
-  [...TIER2, ...TIER3, ...TIER4, ...TIER5, ...TIER6, ...TIER7, ...BB_CALL]
-    .filter((h) => h !== 'A5s' && h !== 'A4s');
+function posLabel(p: Position): string { return p; }
 
-const BB_vs_BTN: Range = listsToRange({ call: BB_DEF_CALL, raise: BB_DEF_RAISE });
+function buildScenarios(): VsOpenScenario[] {
+  const out: VsOpenScenario[] = [];
+  for (let oi = 0; oi < POS_ORDER.length; oi++) {
+    const openerPos = POS_ORDER[oi];
+    if (OPENER_BASE_TIER[openerPos] === 0) continue; // BB は opener にならない
+    for (let hi = oi + 1; hi < POS_ORDER.length; hi++) {
+      const heroPos = POS_ORDER[hi];
+      out.push({
+        id: `vs${openerPos}_from${heroPos}`,
+        label: `vs ${posLabel(openerPos)} open（あなた${posLabel(heroPos)}）`,
+        heroPos,
+        villainPos: openerPos,
+        range: deriveDefense(heroPos, openerPos),
+      });
+    }
+  }
+  return out;
+}
 
-// BB vs CO open
-const BB_vs_CO = tokensToRangeWithActions({
-  call: [
-    '22-JJ',
-    'AJo+', 'ATs+', 'A5s-A2s',
-    'KQo', 'KJs+', 'KTs',
-    'QJs', 'QTs',
-    'JTs', 'J9s',
-    'T9s', 'T8s',
-    '98s', '97s',
-    '87s',
-    '76s',
-    '65s',
-    '54s',
-  ],
-  raise: [
-    'QQ+', 'AKs', 'AKo',
-    'A5s', 'A4s',
-  ],
-});
-
-// SB vs BTN open
-const SB_vs_BTN = tokensToRangeWithActions({
-  call: [
-    '22-JJ',
-    'ATo+', 'A9s+', 'A5s-A3s',
-    'KQo', 'KJs+', 'KTs',
-    'QJs', 'QTs',
-    'JTs',
-    'T9s', 'T8s',
-    '98s',
-    '87s',
-    '76s',
-    '65s',
-  ],
-  raise: [
-    'QQ+', 'AKs', 'AKo',
-    'A5s', 'A4s',
-    'K9s',
-  ],
-});
-
-// BTN vs CO open (IP 3bet/call)
-const BTN_vs_CO = tokensToRangeWithActions({
-  call: [
-    '22-TT',
-    'AJo+', 'ATs+', 'A9s', 'A5s-A2s',
-    'KQo', 'KJs+', 'KTs',
-    'QJs', 'QTs', 'Q9s',
-    'JTs', 'J9s',
-    'T9s', 'T8s',
-    '98s', '97s',
-    '87s', '86s',
-    '76s',
-    '65s',
-    '54s',
-  ],
-  raise: [
-    'QQ+', 'AKs', 'AKo',
-    'A5s', 'A4s',
-    'KQs',
-  ],
-});
-
-// BB vs UTG open（タイトめにコール）
-const BB_vs_UTG = tokensToRangeWithActions({
-  call: [
-    '22-JJ',
-    'AQo+', 'ATs+', 'A5s-A4s',
-    'KQo', 'KQs', 'KJs',
-    'QJs', 'QTs',
-    'JTs',
-    'T9s',
-    '98s',
-    '87s',
-    '76s',
-    '65s',
-  ],
-  raise: [
-    'QQ+', 'AKs', 'AKo',
-    'A5s',
-  ],
-});
-
-export const VSOPEN_SCENARIOS: VsOpenScenario[] = [
-  {
-    id: 'vsBTN_fromBB',
-    label: 'vs BTN open（あなたBB）',
-    heroPos: 'BB',
-    villainPos: 'BTN',
-    range: BB_vs_BTN,
-  },
-  {
-    id: 'vsCO_fromBB',
-    label: 'vs CO open（あなたBB）',
-    heroPos: 'BB',
-    villainPos: 'CO',
-    range: BB_vs_CO,
-  },
-  {
-    id: 'vsBTN_fromSB',
-    label: 'vs BTN open（あなたSB）',
-    heroPos: 'SB',
-    villainPos: 'BTN',
-    range: SB_vs_BTN,
-  },
-  {
-    id: 'vsCO_fromBTN',
-    label: 'vs CO open（あなたBTN）',
-    heroPos: 'BTN',
-    villainPos: 'CO',
-    range: BTN_vs_CO,
-  },
-  {
-    id: 'vsUTG_fromBB',
-    label: 'vs UTG open（あなたBB）',
-    heroPos: 'BB',
-    villainPos: 'UTG',
-    range: BB_vs_UTG,
-  },
-];
+export const VSOPEN_SCENARIOS: VsOpenScenario[] = buildScenarios();
 
 export function getVsOpen(heroPos: Position, villainPos: Position): VsOpenScenario | undefined {
   return VSOPEN_SCENARIOS.find((s) => s.heroPos === heroPos && s.villainPos === villainPos);

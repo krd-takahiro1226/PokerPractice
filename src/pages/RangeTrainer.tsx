@@ -26,8 +26,16 @@ import {
 import type { GameMode } from '../core/ranges/mode';
 import { openPercent } from '../core/ranges/expand';
 import { accuracy, useProgress } from '../store/progress';
+import { VSOPEN_SCENARIOS, getVsOpen } from '../core/ranges/vsOpen';
+import { seatLabels, maxTierForSeatsMode, playersBehind } from '../core/ranges/seats';
+import type { Range } from '../core/ranges/types';
+import type { Position } from '../core/ranges/types';
+import { getEffectiveRange, rfiKey, vsOpenKey } from '../core/ranges/effective';
+import { useCustomRanges } from '../store/customRanges';
+import { useAttempts } from '../store/attempts';
 
 type Tab = 'chart' | 'drill';
+type ChartKind = 'rfi' | 'vsOpen';
 
 const ACTION_LABEL: Record<Action, string> = { raise: 'オープン (レイズ)', call: 'コール', fold: 'フォールド' };
 
@@ -55,6 +63,7 @@ const TIER_NAMES = ['tier1（紺）', 'tier2（赤）', 'tier3（黄）', 'tier4
 export function RangeTrainer() {
   const [tab, setTab] = useState<Tab>('chart');
   const [mode, setMode] = useState<GameMode>('tournament');
+  const [seatCount, setSeatCount] = useState<number>(6);
 
   return (
     <div>
@@ -80,7 +89,7 @@ export function RangeTrainer() {
       </div>
 
       {/* モードセレクタ */}
-      <div className="mb-5 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <span className="text-xs text-muted">モード:</span>
         {GAME_MODES.map((m) => (
           <button
@@ -98,46 +107,201 @@ export function RangeTrainer() {
         ))}
       </div>
 
-      {tab === 'chart' ? <ChartView mode={mode} /> : <DrillView mode={mode} />}
+      {/* 人数セレクタ */}
+      <div className="mb-5 flex items-center gap-2">
+        <span className="text-xs text-muted">人数:</span>
+        {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+          <button
+            key={n}
+            onClick={() => setSeatCount(n)}
+            className={cn(
+              'rounded-lg px-2.5 py-1 text-xs font-medium transition',
+              seatCount === n
+                ? 'bg-accent text-[#04221a]'
+                : 'border border-border text-muted hover:text-text',
+            )}
+          >
+            {n}
+          </button>
+        ))}
+        {seatCount > 6 && (
+          <span className="text-xs text-amber-400">RFI チャート閲覧のみ</span>
+        )}
+      </div>
+
+      {tab === 'chart' ? (
+        <ChartView mode={mode} seatCount={seatCount} />
+      ) : (
+        <DrillView mode={mode} />
+      )}
     </div>
   );
 }
 
-function ChartView({ mode }: { mode: GameMode }) {
-  const scenarios = getRfiScenarios(mode);
-  const [scenarioId, setScenarioId] = useState(scenarios[0].id);
-  const scenario = scenarios.find((s) => s.id === scenarioId) ?? scenarios[0];
-  const pct = useMemo(() => openPercent(scenario.range), [scenario]);
+function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
+  const [chartKind, setChartKind] = useState<ChartKind>('rfi');
+  const [editMode, setEditMode] = useState(false);
+  const { ranges: customRanges, setRange, resetRange } = useCustomRanges();
+  const is6max = seatCount === 6;
 
-  const activeMaxTier = maxTierFor(mode, scenario.heroPos);
+  // RFI 用: seatLabels から動的に tier-based range を生成
+  const rfiScenarios = useMemo(() => {
+    if (is6max) return getRfiScenarios(mode);
+    const labels = seatLabels(seatCount);
+    // BB除く RFI 対象席のみ
+    return labels
+      .map((label, idx) => ({ label, idx }))
+      .filter(({ label }) => label !== 'BB' && label !== 'SB')
+      .map(({ label, idx }) => {
+        const b = playersBehind(seatCount, idx);
+        const maxTier = maxTierForSeatsMode(b, mode);
+        const range: Range = {};
+        for (const hand of TIERS.slice(0, maxTier).flat()) range[hand] = { raise: 1 };
+        return {
+          id: `RFI_${label}_${seatCount}max`,
+          label: `${label} オープン`,
+          heroPos: label,
+          range,
+          sizeBB: 2.5,
+        };
+      });
+  }, [mode, seatCount, is6max]);
+
+  const [rfiScenarioId, setRfiScenarioId] = useState<string>('');
+  const activeRfiScenario = (rfiScenarios.find((s) => s.id === rfiScenarioId) ?? rfiScenarios[0]);
+
+  // vs-open 用
+  const [vsOpenIdx, setVsOpenIdx] = useState<number>(0);
+  const vsOpenScenario = VSOPEN_SCENARIOS[vsOpenIdx];
+
+  const currentKey = chartKind === 'rfi' && is6max
+    ? rfiKey(activeRfiScenario?.heroPos as Position)
+    : chartKind === 'vsOpen'
+      ? vsOpenKey(vsOpenScenario?.villainPos as Position, vsOpenScenario?.heroPos as Position)
+      : null;
+
+  const activeRange = useMemo(() => {
+    if (currentKey) {
+      return getEffectiveRange(currentKey, mode, customRanges) ?? {};
+    }
+    if (chartKind === 'rfi') return activeRfiScenario?.range ?? {};
+    return vsOpenScenario?.range ?? {};
+  }, [currentKey, mode, customRanges, chartKind, activeRfiScenario, vsOpenScenario]);
+
+  const hasCustom = currentKey ? (!!customRanges[currentKey] && Object.keys(customRanges[currentKey]!).length > 0) : false;
+
+  const pct = useMemo(
+    () => chartKind === 'rfi' ? openPercent(activeRange) : undefined,
+    [chartKind, activeRange],
+  );
+
+  const activeMaxTier = (chartKind === 'rfi' && is6max)
+    ? maxTierFor(mode, activeRfiScenario?.heroPos as any)
+    : undefined;
+
+  function handleCellClick(hand: string) {
+    if (!editMode || !is6max || chartKind !== 'rfi' || !currentKey) return;
+    const current = activeRange[hand];
+    const pa = primaryAction(current);
+    const next = pa === 'raise' ? 'call' : pa === 'call' ? 'fold' : 'raise';
+    const newRange = { ...activeRange };
+    if (next === 'fold') {
+      delete newRange[hand];
+    } else {
+      newRange[hand] = next === 'raise' ? { raise: 1 } : { call: 1 };
+    }
+    setRange(currentKey, newRange);
+  }
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap gap-2">
-        {scenarios.map((s) => (
+      {/* チャート種別セレクタ */}
+      <div className="flex items-center gap-3">
+        <div className="inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
           <button
-            key={s.id}
-            onClick={() => setScenarioId(s.id)}
+            onClick={() => setChartKind('rfi')}
             className={cn(
-              'rounded-xl border px-4 py-2 text-sm font-medium transition',
-              s.id === scenario.id
-                ? 'border-accent bg-accent/15 text-accent-bright'
-                : 'border-border bg-surface-2/40 text-muted hover:text-text',
+              'rounded-lg px-4 py-1.5 text-sm font-medium transition',
+              chartKind === 'rfi' ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
             )}
           >
-            {s.label}
+            RFI
           </button>
-        ))}
+          {is6max && (
+            <button
+              onClick={() => setChartKind('vsOpen')}
+              className={cn(
+                'rounded-lg px-4 py-1.5 text-sm font-medium transition',
+                chartKind === 'vsOpen' ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
+              )}
+            >
+              vs open ディフェンス
+            </button>
+          )}
+        </div>
+        {!is6max && chartKind === 'vsOpen' && (
+          <span className="text-xs text-amber-400">vs open は 6-max のみ対応</span>
+        )}
       </div>
+
+      {/* シナリオセレクタ */}
+      {chartKind === 'rfi' ? (
+        <div className="flex flex-wrap gap-2">
+          {rfiScenarios.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setRfiScenarioId(s.id)}
+              className={cn(
+                'rounded-xl border px-4 py-2 text-sm font-medium transition',
+                s.id === activeRfiScenario?.id
+                  ? 'border-accent bg-accent/15 text-accent-bright'
+                  : 'border-border bg-surface-2/40 text-muted hover:text-text',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {VSOPEN_SCENARIOS.map((s, idx) => (
+            <button
+              key={s.id}
+              onClick={() => setVsOpenIdx(idx)}
+              className={cn(
+                'rounded-xl border px-4 py-2 text-sm font-medium transition',
+                idx === vsOpenIdx
+                  ? 'border-accent bg-accent/15 text-accent-bright'
+                  : 'border-border bg-surface-2/40 text-muted hover:text-text',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
         <div className="space-y-4">
-          <Panel>
-            <PositionTable hero={scenario.heroPos} />
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <StatBadge label="ポジション" value={scenario.heroPos} accent="accent" />
-              <StatBadge label="オープンサイズ" value={`${scenario.sizeBB}bb`} accent="muted" />
-            </div>
-          </Panel>
+          {chartKind === 'rfi' && activeRfiScenario && is6max && (
+            <Panel>
+              <PositionTable hero={activeRfiScenario.heroPos as any} />
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <StatBadge label="ポジション" value={activeRfiScenario.heroPos} accent="accent" />
+                <StatBadge label="オープンサイズ" value={`${activeRfiScenario.sizeBB}bb`} accent="muted" />
+              </div>
+            </Panel>
+          )}
+
+          {chartKind === 'vsOpen' && vsOpenScenario && (
+            <Panel>
+              <div className="space-y-1 text-sm">
+                <div><span className="text-muted">opener: </span><span className="font-semibold">{vsOpenScenario.villainPos}</span></div>
+                <div><span className="text-muted">hero: </span><span className="font-semibold">{vsOpenScenario.heroPos}</span></div>
+              </div>
+              <p className="mt-3 text-[11px] text-muted">vs open は全モード共通（モード非依存）</p>
+            </Panel>
+          )}
 
           {/* ティア早見表 */}
           <Panel title="ティア構成">
@@ -149,8 +313,8 @@ function ChartView({ mode }: { mode: GameMode }) {
             </p>
             <div className="space-y-1.5">
               {TIERS.map((hands, idx) => {
-                const tierNum = idx + 1; // 1始まり
-                const isActive = tierNum <= activeMaxTier;
+                const tierNum = idx + 1;
+                const isActive = activeMaxTier !== undefined ? tierNum <= activeMaxTier : false;
                 return (
                   <div
                     key={tierNum}
@@ -172,14 +336,47 @@ function ChartView({ mode }: { mode: GameMode }) {
                 );
               })}
             </div>
-            <p className="mt-2 text-[10px] text-muted">
-              BB defense は全モード共通（モード非依存）
-            </p>
+            {chartKind === 'vsOpen' && (
+              <div className="mt-2 space-y-1 text-[10px] text-muted">
+                <p>raise=3bet（緑）、call（青）、fold（灰）</p>
+                <p>vs open は全モード共通</p>
+              </div>
+            )}
+            {chartKind === 'rfi' && (
+              <p className="mt-2 text-[10px] text-muted">
+                BB defense は全モード共通（モード非依存）
+              </p>
+            )}
           </Panel>
         </div>
 
         <Panel>
-          <RangeGrid range={scenario.range} />
+          {is6max && chartKind === 'rfi' && (
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                onClick={() => setEditMode((v) => !v)}
+                className={cn(
+                  'rounded-lg px-3 py-1 text-xs font-medium transition',
+                  editMode ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                )}
+              >
+                {editMode ? '編集中' : '編集'}
+              </button>
+              {hasCustom && (
+                <>
+                  <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] text-accent-bright">カスタム</span>
+                  <button
+                    onClick={() => currentKey && resetRange(currentKey)}
+                    className="rounded-lg px-2 py-0.5 text-xs text-muted hover:text-danger transition"
+                  >
+                    リセット
+                  </button>
+                </>
+              )}
+              {editMode && <span className="text-[10px] text-muted">セルをクリックで raise→call→fold 切替</span>}
+            </div>
+          )}
+          <RangeGrid range={activeRange} onCellClick={editMode && is6max && chartKind === 'rfi' ? handleCellClick : undefined} />
           <div className="mt-4">
             <RangeLegend percent={pct} />
           </div>
@@ -192,6 +389,7 @@ function ChartView({ mode }: { mode: GameMode }) {
 function DrillView({ mode }: { mode: GameMode }) {
   const recordRange = useProgress((s) => s.recordRange);
   const stats = useProgress((s) => s.range);
+  const record = useAttempts((s) => s.record);
   const [drill, setDrill] = useState<Drill>(() => dealDrill(mode));
   const [answer, setAnswer] = useState<Action | null>(null);
 
@@ -203,6 +401,15 @@ function DrillView({ mode }: { mode: GameMode }) {
     if (answered) return;
     setAnswer(a);
     recordRange(drill.scenario.id, a === expected);
+    record({
+      drillKind: 'range',
+      scenarioId: drill.scenario.id,
+      position: drill.scenario.heroPos,
+      handClass: drill.hand,
+      expected,
+      answered: a,
+      correct: a === expected,
+    });
   }
 
   function next() {

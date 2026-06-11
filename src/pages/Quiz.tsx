@@ -11,6 +11,7 @@ import { handClassToCombos } from '../core/handNotation';
 import { pick } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
+import { useAttempts } from '../store/attempts';
 
 function nextQuestion(current?: QuizQuestion): QuizQuestion {
   if (QUIZ_QUESTIONS.length === 1) return QUIZ_QUESTIONS[0];
@@ -22,6 +23,7 @@ function nextQuestion(current?: QuizQuestion): QuizQuestion {
 export function Quiz() {
   const recordQuiz = useProgress((s) => s.recordQuiz);
   const stats = useProgress((s) => s.quiz);
+  const record = useAttempts((s) => s.record);
   const [q, setQ] = useState<QuizQuestion>(() => nextQuestion());
   const [answer, setAnswer] = useState<string | null>(null);
 
@@ -33,6 +35,13 @@ export function Quiz() {
     if (answered) return;
     setAnswer(value);
     recordQuiz(value === q.answer);
+    record({
+      drillKind: 'quiz',
+      scenarioId: q.id,
+      expected: q.answer,
+      answered: value,
+      correct: value === q.answer,
+    });
   }
 
   function next() {
