@@ -26,12 +26,12 @@ export function PokerTable({ state, className }: PokerTableProps) {
   const isShowdown = state.street === 'showdown';
 
   return (
-    <div className={cn('relative mx-auto aspect-[2/1] w-full max-w-2xl', className)}>
+    <div className={cn('relative mx-auto aspect-[4/3] w-full max-w-2xl sm:aspect-[2/1]', className)}>
       {/* Felt */}
       <div className="absolute inset-[10%] rounded-[50%] border border-accent/20 bg-gradient-to-b from-emerald-900/40 to-emerald-950/60 shadow-[inset_0_0_60px_rgba(0,0,0,0.6)]" />
 
-      {/* Center: pot + board */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+      {/* Center: pot + board（モバイルは縮小して左右の座席との衝突を避ける） */}
+      <div className="absolute inset-0 flex scale-[0.8] flex-col items-center justify-center gap-2 sm:scale-100">
         <BoardView board={board} />
         <PotDisplay pot={pot} streetCommits={streetCommits} />
       </div>
@@ -53,7 +53,7 @@ export function PokerTable({ state, className }: PokerTableProps) {
                 player={player}
                 isToAct={isToAct}
                 showCards={isShowdown}
-                className="min-w-[80px]"
+                className="min-w-[56px] sm:min-w-[80px]"
               />
               {/* Dealer button */}
               {isBTN && (

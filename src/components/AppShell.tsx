@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BarChart2, BookMarked, BookOpen, Brain, Coins, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
+import { BarChart2, BookMarked, BookOpen, Brain, Coins, Eye, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
 import { accuracy, useProgress } from '../store/progress';
 import { cn } from '../lib/cn';
 import { AuthButton } from './AuthButton';
@@ -19,6 +19,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/pot-odds', label: 'オッズ & MDF', icon: Coins },
       { to: '/cbet', label: 'CB', icon: Target },
       { to: '/quiz', label: 'クイズ', icon: Brain },
+      { to: '/perceived', label: '相手目線レンジ', icon: Eye },
       { to: '/stats', label: '統計', icon: BarChart2 },
       { to: '/review', label: '復習', icon: BookOpen },
       { to: '/glossary', label: '用語集', icon: BookMarked },
@@ -61,9 +62,9 @@ function Logo() {
 }
 
 function OverallStat() {
-  const { range, potOdds, quiz, reqEquity, mdf, cbet } = useProgress();
-  const attempts = range.attempts + potOdds.attempts + quiz.attempts + reqEquity.attempts + mdf.attempts + cbet.attempts;
-  const correct = range.correct + potOdds.correct + quiz.correct + reqEquity.correct + mdf.correct + cbet.correct;
+  const { range, potOdds, quiz, reqEquity, mdf, cbet, perceived } = useProgress();
+  const attempts = range.attempts + potOdds.attempts + quiz.attempts + reqEquity.attempts + mdf.attempts + cbet.attempts + perceived.attempts;
+  const correct = range.correct + potOdds.correct + quiz.correct + reqEquity.correct + mdf.correct + cbet.correct + perceived.correct;
   const acc = attempts === 0 ? 0 : correct / attempts;
   return (
     <div className="rounded-xl border border-border bg-surface-2/50 p-3">

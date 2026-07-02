@@ -21,6 +21,7 @@ import {
 import { useHistory } from '../store/history';
 import { useSessions } from '../store/sessions';
 import type { SavedHand } from '../store/history';
+import type { ActiveSession } from '../store/sessions';
 
 export type VersusSessionController = {
   session: SessionState;
@@ -31,6 +32,7 @@ export type VersusSessionController = {
   nextHand: () => void;
   quit: () => void;
   start: (config: SessionConfig) => void;
+  resume: (saved: ActiveSession) => void;
   sessionId: string | null;
 };
 
@@ -46,7 +48,7 @@ function needsAdvance(game: GameState): boolean {
 
 export function useVersusSession(): VersusSessionController {
   const addHistory = useHistory((s) => s.add);
-  const { createSession, finishSession } = useSessions();
+  const { createSession, finishSession, saveActiveSession, clearActiveSession } = useSessions();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionState>(() => {
@@ -159,9 +161,9 @@ export function useVersusSession(): VersusSessionController {
     setSession(nextSession);
 
     // セッション終了チェック
+    const sid = sessionIdRef.current;
     if (!canContinue(nextSession)) {
       // DB/localStorage に終了記録を保存
-      const sid = sessionIdRef.current;
       if (sid) {
         finishSession(sid, {
           result: nextSession.status as 'bust' | 'win' | 'quit',
@@ -169,8 +171,11 @@ export function useVersusSession(): VersusSessionController {
           stackCurve: nextSession.stackCurve,
         }).catch(() => {});
       }
+      clearActiveSession();
+    } else if (sid) {
+      saveActiveSession(sid, nextSession);
     }
-  }, [game, addHistory, finishSession]);
+  }, [game, addHistory, finishSession, saveActiveSession, clearActiveSession]);
 
   // ゲームループドライバー
   useEffect(() => {
@@ -214,8 +219,9 @@ export function useVersusSession(): VersusSessionController {
     }).then((id) => {
       setSessionId(id);
       sessionIdRef.current = id;
+      saveActiveSession(id, newSession);
     }).catch(() => {});
-  }, [createSession]);
+  }, [createSession, saveActiveSession]);
 
   const nextHand = useCallback(() => {
     const currentSession = sessionRef.current;
@@ -248,7 +254,8 @@ export function useVersusSession(): VersusSessionController {
         stackCurve: nextSession.stackCurve,
       }).catch(() => {});
     }
-  }, [finishSession]);
+    clearActiveSession();
+  }, [finishSession, clearActiveSession]);
 
   const heroAct = useCallback((action: PlayerAction) => {
     setGame((prev) => {
@@ -259,6 +266,24 @@ export function useVersusSession(): VersusSessionController {
         return prev;
       }
     });
+  }, []);
+
+  const resume = useCallback((saved: ActiveSession) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    processingRef.current = false;
+    savedRef.current = null;
+
+    setSession(saved.state);
+    sessionRef.current = saved.state;
+    setSessionId(saved.recordId);
+    sessionIdRef.current = saved.recordId;
+
+    const handConfig = configForHand(saved.state);
+    const newGame = startHand(null, handConfig, saved.state.seatStacks);
+    setGame(newGame);
   }, []);
 
   return {
@@ -281,6 +306,7 @@ export function useVersusSession(): VersusSessionController {
     nextHand,
     quit,
     start,
+    resume,
     sessionId,
   };
 }

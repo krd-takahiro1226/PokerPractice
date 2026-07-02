@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Brain, Coins, Grid3x3, Percent, TrendingDown } from 'lucide-react';
+import { ArrowRight, Brain, Coins, Eye, Grid3x3, Percent, TrendingDown } from 'lucide-react';
 import { Panel } from '../components/Panel';
 import { ProgressRing } from '../components/ProgressRing';
 import { StatBadge } from '../components/StatBadge';
@@ -34,6 +34,13 @@ const FEATURES = [
     title: 'ハンドクイズ',
     desc: '状況を提示し最適アクションを選択。正誤と解説で理解を定着。',
     accent: 'text-accent-2',
+  },
+  {
+    to: '/perceived',
+    icon: Eye,
+    title: '相手目線レンジ',
+    desc: '自分のアクションが相手にどんなレンジを見せているかを意識する訓練。',
+    accent: 'text-danger',
   },
 ] as const;
 

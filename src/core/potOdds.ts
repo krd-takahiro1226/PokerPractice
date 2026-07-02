@@ -193,3 +193,77 @@ export function genMdfDrill(rng?: () => number): MdfDrill {
 
   return { pot, bet, answer, choices };
 }
+
+// ─── インプライドオッズ判断ドリル ────────────────────────────────────────────
+
+/**
+ * コールを損益分岐にするために将来ストリートで追加回収が必要な額。
+ * equity*(pot+toCall+X) = toCall を X について解く。負なら 0。
+ * X = toCall/equity - (pot + toCall)
+ */
+export function requiredImpliedAmount(pot: number, toCall: number, equity: number): number {
+  if (equity <= 0) return Infinity;
+  const x = toCall / equity - (pot + toCall);
+  return Math.max(0, x);
+}
+
+export type ImpliedDrill = {
+  pot: number; // 相手のベット込み
+  toCall: number;
+  outs: number;
+  drawId: string;
+  drawLabel: string;
+  street: 'flop' | 'turn';
+  behindStack: number; // 相手の残りスタック（有効スタック）
+  collectFactor: number;
+  requiredExtra: number; // requiredImpliedAmount の結果
+  answer: 'call' | 'fold';
+};
+
+const FLUSH_DRAW_IDS = new Set(['flush', 'fd-gutshot', 'fd-oesd']);
+const STRAIGHT_DRAW_IDS = new Set(['gutshot', 'oesd']);
+
+function collectFactorFor(drawId: string): number {
+  if (FLUSH_DRAW_IDS.has(drawId)) return 0.3;
+  if (STRAIGHT_DRAW_IDS.has(drawId)) return 0.5;
+  return 0.2; // two-overcards
+}
+
+export function genImpliedDrill(rng?: () => number): ImpliedDrill {
+  const r = rng ?? Math.random;
+
+  const draw = DRAW_TYPES[Math.floor(r() * DRAW_TYPES.length)];
+  const street: 'flop' | 'turn' = r() < 0.5 ? 'flop' : 'turn';
+  const equity = equityFromOuts(draw.outs, street === 'flop' ? 2 : 1);
+
+  const pot = (Math.floor(r() * 27) + 4) * 10; // 40..300
+
+  let toCall: number;
+  {
+    const ratio = 0.4 + r() * 0.8;
+    toCall = Math.max(20, Math.round((pot * ratio) / 10) * 10);
+  }
+
+  // 直接オッズでは足りないケースを主とするため、コール可なら toCall を釣り上げる
+  for (let i = 0; i < 5 && equity >= potOdds(pot, toCall); i++) {
+    toCall = Math.round((toCall * 1.3) / 10) * 10;
+  }
+
+  const collectFactor = collectFactorFor(draw.id);
+  const behindStack = (Math.floor(r() * 51) + 10) * 10; // 100..600
+  const requiredExtra = requiredImpliedAmount(pot, toCall, equity);
+  const answer: 'call' | 'fold' = requiredExtra <= collectFactor * behindStack ? 'call' : 'fold';
+
+  return {
+    pot,
+    toCall,
+    outs: draw.outs,
+    drawId: draw.id,
+    drawLabel: draw.label,
+    street,
+    behindStack,
+    collectFactor,
+    requiredExtra,
+    answer,
+  };
+}

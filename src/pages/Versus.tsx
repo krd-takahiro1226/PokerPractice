@@ -11,6 +11,8 @@ import { useVersusGame } from '../hooks/useVersusGame';
 import { useVersusSession } from '../hooks/useVersusSession';
 import { GAME_MODES, GAME_MODE_SHORT } from '../core/ranges';
 import { useHistory } from '../store/history';
+import { useSessions } from '../store/sessions';
+import type { ActiveSession } from '../store/sessions';
 import { reviewHand } from '../core/review/reviewHand';
 import { useCustomRanges } from '../store/customRanges';
 import type { SavedHand } from '../store/history';
@@ -19,11 +21,15 @@ import {
   DEFAULT_TOURNAMENT_LEVELS,
   CASH_LEVEL_ANTE,
   CASH_LEVEL_NOANTE,
+  canContinue,
   type SessionConfig,
   type SessionFormat,
 } from '../core/game/session';
 import { LineChart } from '../components/charts/LineChart';
 import { cn } from '../lib/cn';
+import { useDisplayPrefs } from '../store/displayPrefs';
+import { formatAmount } from '../lib/chips';
+import type { ChipDisplay } from '../lib/chips';
 import type { GameMode } from '../core/ranges/mode';
 import type { GameConfig } from '../core/game/types';
 
@@ -95,21 +101,63 @@ export function Versus() {
         )}
       </div>
 
-      {tab === 'game'
-        ? versusMode === 'single'
-          ? <GameTab />
-          : <SessionTab />
-        : <HistoryTab />
-      }
+      <div className={cn(tab !== 'game' && 'hidden')}>
+        <div className={cn(versusMode !== 'single' && 'hidden')}>
+          <GameTab />
+        </div>
+        <div className={cn(versusMode !== 'session' && 'hidden')}>
+          <SessionTab />
+        </div>
+      </div>
+      <div className={cn(tab !== 'history' && 'hidden')}>
+        <HistoryTab />
+      </div>
     </div>
+  );
+}
+
+// ─── Chip display toggle (shared) ──────────────────────────────────────────────
+
+function ChipDisplayToggle() {
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
+  const setChipDisplay = useDisplayPrefs((s) => s.setChipDisplay);
+  return (
+    <>
+      <span className="text-xs text-muted">表示:</span>
+      {(['bb', 'chips'] as ChipDisplay[]).map((d) => (
+        <button
+          key={d}
+          onClick={() => setChipDisplay(d)}
+          className={cn(
+            'rounded-lg px-3 py-1 text-xs font-medium transition',
+            chipDisplay === d
+              ? 'bg-accent text-[#04221a]'
+              : 'border border-border text-muted hover:text-text',
+          )}
+        >
+          {d === 'bb' ? 'bb' : 'チップ'}
+        </button>
+      ))}
+    </>
   );
 }
 
 // ─── Game Tab ──────────────────────────────────────────────────────────────────
 
 function GameTab() {
-  const { state, legal, isHeroTurn, heroAct, newHand, difficulty, setDifficulty, mode, setMode } =
-    useVersusGame();
+  const {
+    state,
+    legal,
+    isHeroTurn,
+    heroAct,
+    newHand,
+    difficulty,
+    setDifficulty,
+    mode,
+    setMode,
+    heroRebought,
+  } = useVersusGame();
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
 
   const hero = state.players[0];
   const isHandOver = state.street === 'showdown' && state.result !== null;
@@ -165,6 +213,7 @@ function GameTab() {
             {GAME_MODE_SHORT[m]}
           </button>
         ))}
+        <ChipDisplayToggle />
         <span className="ml-auto text-[10px] text-muted">
           ハンド #{state.handNumber}　{streetLabel[state.street]}
         </span>
@@ -174,6 +223,12 @@ function GameTab() {
       <Panel className="overflow-visible p-4">
         <PokerTable state={state} />
       </Panel>
+
+      {heroRebought && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          スタックを100bbに補充しました
+        </div>
+      )}
 
       {/* Hand result */}
       {isHandOver && state.result && (
@@ -193,7 +248,7 @@ function GameTab() {
                     <span className={p.isHero ? 'font-bold text-accent-bright' : 'text-text'}>
                       {p.isHero ? 'あなた' : p.pos}
                     </span>
-                    <span className="text-muted"> が {w.amount.toFixed(1)}bb 獲得</span>
+                    <span className="text-muted"> が {formatAmount(w.amount, chipDisplay)} 獲得</span>
                   </div>
                 );
               })}
@@ -224,16 +279,27 @@ function GameTab() {
 
       {/* Hero action controls */}
       {isHeroTurn && legal && (
-        <Panel className="p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
-            あなたの番
-          </div>
-          <BetControls
-            legal={legal}
-            potForSizing={totalPot}
-            onAction={heroAct}
-          />
-        </Panel>
+        <div className="sticky bottom-20 z-30 md:static md:bottom-auto">
+          <Panel className="bg-surface/95 p-4 backdrop-blur">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted">
+                あなたの番
+              </div>
+              {/* モバイルでは席がパネルに隠れることがあるため、手札をここにも表示 */}
+              {hero.hole && (
+                <div className="flex gap-0.5 sm:hidden">
+                  <PlayingCard card={hero.hole[0]} size="sm" />
+                  <PlayingCard card={hero.hole[1]} size="sm" />
+                </div>
+              )}
+            </div>
+            <BetControls
+              legal={legal}
+              potForSizing={totalPot}
+              onAction={heroAct}
+            />
+          </Panel>
+        </div>
       )}
 
       {/* CPU thinking indicator */}
@@ -269,6 +335,8 @@ function SessionTab() {
   const ctrl = useVersusSession();
   const { session, game, legal, isHeroTurn, heroAct, nextHand, quit, start } = ctrl;
   const [started, setStarted] = useState(false);
+  const { activeSession, clearActiveSession } = useSessions();
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
 
   // フォーム状態
   const [format, setFormat] = useState<SessionFormat>('tournament');
@@ -316,6 +384,32 @@ function SessionTab() {
   if (!started) {
     return (
       <div className="flex flex-col gap-4">
+        {activeSession && activeSession.state.status === 'active' && canContinue(activeSession.state) && (
+          <Panel className="border-accent/30 bg-accent/5 p-4">
+            <div className="text-sm font-semibold text-text">進行中のセッションがあります</div>
+            <div className="mt-1 text-xs text-muted">
+              {SESSION_FORMAT_LABEL[activeSession.state.config.format]} / {activeSession.state.handNumber}ハンド / スタック{' '}
+              {formatAmount(activeSession.state.seatStacks[0], chipDisplay)}
+            </div>
+            <div className="mt-1 text-xs text-muted">
+              ハンド途中の状態は保存されないため、次のハンドから再開します
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  ctrl.resume(activeSession);
+                  setStarted(true);
+                }}
+              >
+                再開する
+              </Button>
+              <Button size="sm" variant="ghost" onClick={clearActiveSession}>
+                破棄
+              </Button>
+            </div>
+          </Panel>
+        )}
         <Panel className="p-5">
           <div className="mb-4 text-sm font-semibold text-text">セッション設定</div>
 
@@ -456,7 +550,8 @@ function SessionTab() {
         <span>
           レベル {session.currentLevel + 1}: {session.config.blindLevels[session.currentLevel]?.bb}bb
         </span>
-        <span>スタック: {session.seatStacks[0].toFixed(0)}</span>
+        <span>スタック: {formatAmount(session.seatStacks[0], chipDisplay)}</span>
+        <ChipDisplayToggle />
         <button
           onClick={quit}
           className="ml-auto rounded-lg border border-rose-500/30 px-2 py-1 text-rose-400 hover:bg-rose-500/10"
@@ -501,7 +596,7 @@ function SessionTab() {
                     <span className={p.isHero ? 'font-bold text-accent-bright' : 'text-text'}>
                       {p.isHero ? 'あなた' : p.pos}
                     </span>
-                    <span className="text-muted"> が {w.amount.toFixed(1)}bb 獲得</span>
+                    <span className="text-muted"> が {formatAmount(w.amount, chipDisplay)} 獲得</span>
                   </div>
                 );
               })}
@@ -516,16 +611,27 @@ function SessionTab() {
 
       {/* ヒーローのアクション */}
       {isHeroTurn && legal && (
-        <Panel className="p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
-            あなたの番
-          </div>
-          <BetControls
-            legal={legal}
-            potForSizing={totalPot}
-            onAction={heroAct}
-          />
-        </Panel>
+        <div className="sticky bottom-20 z-30 md:static md:bottom-auto">
+          <Panel className="bg-surface/95 p-4 backdrop-blur">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted">
+                あなたの番
+              </div>
+              {/* モバイルでは席がパネルに隠れることがあるため、手札をここにも表示 */}
+              {game.players[0].hole && (
+                <div className="flex gap-0.5 sm:hidden">
+                  <PlayingCard card={game.players[0].hole[0]} size="sm" />
+                  <PlayingCard card={game.players[0].hole[1]} size="sm" />
+                </div>
+              )}
+            </div>
+            <BetControls
+              legal={legal}
+              potForSizing={totalPot}
+              onAction={heroAct}
+            />
+          </Panel>
+        </div>
       )}
 
       {/* CPU 思考中 */}
@@ -580,6 +686,7 @@ function HistoryTab() {
 function HistoryRow({ hand, onClick }: { hand: SavedHand; onClick: () => void }) {
   const netPositive = hand.heroNet > 0;
   const netNeutral = hand.heroNet === 0;
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
   const date = new Date(hand.ts);
   const DIFF_LABEL = { easy: 'やさしい', normal: 'ふつう', hard: 'つよい' };
   const modeBadge = GAME_MODE_SHORT[hand.mode] ?? hand.mode;
@@ -632,7 +739,7 @@ function HistoryRow({ hand, onClick }: { hand: SavedHand; onClick: () => void })
               : 'text-rose-400',
         )}
       >
-        {netPositive ? '+' : ''}{hand.heroNet.toFixed(1)}bb
+        {netPositive ? '+' : ''}{formatAmount(hand.heroNet, chipDisplay)}
       </div>
     </button>
   );
@@ -659,6 +766,7 @@ function HandReviewPage({ id, onBack }: { id: string; onBack: () => void }) {
 function HandReviewPanel({ hand, onBack }: { hand: SavedHand; onBack: () => void }) {
   const custom = useCustomRanges((s) => s.ranges);
   const reviews = reviewHand(hand, custom);
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
 
   const streetOrder = ['preflop', 'flop', 'turn', 'river', 'showdown'] as const;
   const logsByStreet = streetOrder.reduce(
@@ -718,7 +826,7 @@ function HandReviewPanel({ hand, onBack }: { hand: SavedHand; onBack: () => void
                 hand.heroNet > 0 ? 'text-emerald-400' : hand.heroNet < 0 ? 'text-rose-400' : 'text-muted',
               )}
             >
-              {hand.heroNet > 0 ? '+' : ''}{hand.heroNet.toFixed(1)}bb
+              {hand.heroNet > 0 ? '+' : ''}{formatAmount(hand.heroNet, chipDisplay)}
             </div>
           </div>
         </div>

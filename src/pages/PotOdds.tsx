@@ -9,11 +9,14 @@ import { StatBadge } from '../components/StatBadge';
 import {
   DRAW_TYPES,
   equityFromOuts,
+  genImpliedDrill,
   genMdfDrill,
   genReqEquityDrill,
   mdf,
   potOdds,
+  requiredImpliedAmount,
   ruleOfThumb,
+  type ImpliedDrill,
   type MdfDrill,
   type ReqEquityDrill,
 } from '../core/potOdds';
@@ -23,7 +26,7 @@ import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
 
-type Tab = 'draw' | 'reqEquity' | 'mdf';
+type Tab = 'draw' | 'reqEquity' | 'mdf' | 'implied';
 
 type DrawDrill = {
   pot: number;
@@ -51,7 +54,7 @@ export function PotOdds() {
         description="コール判断・必要勝率・MDF（最低守備頻度）をまとめて練習。"
       />
       <div className="mb-5 inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
-        {(['draw', 'reqEquity', 'mdf'] as Tab[]).map((t) => (
+        {(['draw', 'reqEquity', 'mdf', 'implied'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -60,13 +63,20 @@ export function PotOdds() {
               tab === t ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
             )}
           >
-            {t === 'draw' ? 'ドロー判断' : t === 'reqEquity' ? '必要勝率' : 'MDF'}
+            {t === 'draw'
+              ? 'ドロー判断'
+              : t === 'reqEquity'
+                ? '必要勝率'
+                : t === 'mdf'
+                  ? 'MDF'
+                  : 'インプライドオッズ'}
           </button>
         ))}
       </div>
       {tab === 'draw' && <DrawView />}
       {tab === 'reqEquity' && <ReqEquityView />}
       {tab === 'mdf' && <MdfView />}
+      {tab === 'implied' && <ImpliedView />}
     </div>
   );
 }
@@ -112,7 +122,7 @@ function DrawView() {
         <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-2/60 to-bg/40 p-6">
           <div className="flex items-center justify-center gap-8">
             <div className="text-center">
-              <div className="text-xs uppercase tracking-wide text-muted">ポット</div>
+              <div className="text-xs uppercase tracking-wide text-muted">ポット（相手のベット込み）</div>
               <div className="mt-1 flex items-center gap-1.5 font-mono text-3xl font-bold text-gold tabular-nums">
                 <Coins size={22} /> {drill.pot}
               </div>
@@ -132,6 +142,10 @@ function DrawView() {
             </span>
           </div>
         </div>
+
+        <p className="mt-3 text-center text-xs text-muted">
+          ※ ポットには相手のベット額がすでに含まれています
+        </p>
 
         <p className="my-5 text-center text-sm text-muted">このドローをコールすべき？</p>
 
@@ -222,7 +236,7 @@ function ReqEquityView() {
         <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-2/60 to-bg/40 p-6">
           <div className="flex items-center justify-center gap-8">
             <div className="text-center">
-              <div className="text-xs uppercase tracking-wide text-muted">ポット</div>
+              <div className="text-xs uppercase tracking-wide text-muted">ポット（相手のベット込み）</div>
               <div className="mt-1 flex items-center gap-1.5 font-mono text-3xl font-bold text-gold tabular-nums">
                 <Coins size={22} /> {drill.pot}
               </div>
@@ -233,6 +247,10 @@ function ReqEquityView() {
             </div>
           </div>
         </div>
+
+        <p className="mt-3 text-center text-xs text-muted">
+          ※ ポットには相手のベット額がすでに含まれています
+        </p>
 
         <p className="my-5 text-center text-sm text-muted">コールに必要な勝率は？</p>
 
@@ -345,7 +363,7 @@ function MdfView() {
         <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-2/60 to-bg/40 p-6">
           <div className="flex items-center justify-center gap-8">
             <div className="text-center">
-              <div className="text-xs uppercase tracking-wide text-muted">ポット</div>
+              <div className="text-xs uppercase tracking-wide text-muted">ポット（相手のベット前）</div>
               <div className="mt-1 flex items-center gap-1.5 font-mono text-3xl font-bold text-gold tabular-nums">
                 <Coins size={22} /> {drill.pot}
               </div>
@@ -356,6 +374,10 @@ function MdfView() {
             </div>
           </div>
         </div>
+
+        <p className="mt-3 text-center text-xs text-muted">
+          ※ 相手はこのポットに対してベットしています（ポットにベット額は含まれません）
+        </p>
 
         <p className="my-5 text-center text-sm text-muted">
           あなたのレンジの最低何%を守るべき？(MDF)
@@ -425,6 +447,142 @@ function MdfView() {
               </>
             ))}
           </dl>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+// ─── インプライドオッズ判断タブ ────────────────────────────────────────────
+
+function ImpliedView() {
+  const recordPotOdds = useProgress((s) => s.recordPotOdds);
+  const stats = useProgress((s) => s.potOdds);
+  const record = useAttempts((s) => s.record);
+  const [drill, setDrill] = useState<ImpliedDrill>(() => genImpliedDrill());
+  const [answer, setAnswer] = useState<Action | null>(null);
+
+  const cardsToCome = drill.street === 'flop' ? 2 : 1;
+  const required = potOdds(drill.pot, drill.toCall);
+  const equity = equityFromOuts(drill.outs, cardsToCome);
+  const expectedCollect = drill.collectFactor * drill.behindStack;
+  const shouldCall = drill.answer === 'call';
+  const answered = answer !== null;
+  const correct = answered && (answer === 'call') === shouldCall;
+
+  const factorLabel =
+    drill.collectFactor === 0.3 ? '読まれやすい' : drill.collectFactor === 0.5 ? '隠れやすい' : '回収が難しい';
+
+  function handleAnswer(a: Action) {
+    if (answered) return;
+    setAnswer(a);
+    recordPotOdds((a === 'call') === shouldCall);
+    record({
+      drillKind: 'potOdds',
+      scenarioId: `implied:pot=${drill.pot},call=${drill.toCall},outs=${drill.outs},behind=${drill.behindStack}`,
+      expected: shouldCall ? 'call' : 'fold',
+      answered: a,
+      correct: (a === 'call') === shouldCall,
+    });
+  }
+
+  function next() {
+    setDrill(genImpliedDrill());
+    setAnswer(null);
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <Panel>
+        <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-2/60 to-bg/40 p-6">
+          <div className="flex items-center justify-center gap-6">
+            <div className="text-center">
+              <div className="text-xs uppercase tracking-wide text-muted">ポット（相手のベット込み）</div>
+              <div className="mt-1 flex items-center gap-1.5 font-mono text-3xl font-bold text-gold tabular-nums">
+                <Coins size={22} /> {drill.pot}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs uppercase tracking-wide text-muted">相手のベット</div>
+              <div className="mt-1 font-mono text-3xl font-bold text-danger tabular-nums">{drill.toCall}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs uppercase tracking-wide text-muted">相手の残りスタック</div>
+              <div className="mt-1 font-mono text-3xl font-bold text-text tabular-nums">{drill.behindStack}</div>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-col items-center gap-1 border-t border-border pt-4">
+            <span className="text-sm text-muted">
+              {drill.street === 'flop' ? 'フロップ' : 'ターン'}・あなたのドロー
+            </span>
+            <span className="font-semibold">{drill.drawLabel}</span>
+            <span className="rounded-full bg-accent/15 px-3 py-0.5 font-mono text-sm text-accent-bright">
+              {drill.outs} アウツ
+            </span>
+          </div>
+        </div>
+
+        <p className="my-5 text-center text-sm text-muted">
+          {equity >= required
+            ? '将来の回収も踏まえて、このドローをコールすべき？'
+            : '直接オッズでは足りません。将来の回収を見込んでコールすべき？'}
+        </p>
+
+        {!answered ? (
+          <ActionButtons
+            options={[
+              { action: 'fold', label: 'フォールド' },
+              { action: 'call', label: 'コール' },
+            ]}
+            onSelect={handleAnswer}
+          />
+        ) : (
+          <div className="space-y-4">
+            <FeedbackBanner
+              correct={correct}
+              title={correct ? '正解！' : `不正解 — 正しくは「${shouldCall ? 'コール' : 'フォールド'}」`}
+            >
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <Metric label="必要勝率" value={`${(required * 100).toFixed(1)}%`} note="ポットオッズ" />
+                <Metric label="実際の勝率" value={`${(equity * 100).toFixed(1)}%`} note="アウツから厳密" highlight />
+                <Metric label="必要追加回収額" value={`${drill.requiredExtra.toFixed(0)}`} note="不足を埋めるX" />
+                <Metric
+                  label="見込み回収額"
+                  value={`${expectedCollect.toFixed(0)}`}
+                  note={`${(drill.collectFactor * 100).toFixed(0)}% × 残りスタック`}
+                  highlight
+                />
+              </div>
+              <p className="mt-3">
+                このドローは{factorLabel}ため回収期待は残りスタックの約{(drill.collectFactor * 100).toFixed(0)}%。
+                {shouldCall
+                  ? ` 見込み回収額が必要追加回収額を上回るのでコールが正当化されます。`
+                  : ` 見込み回収額では必要追加回収額を埋められずフォールドが正解です。`}
+              </p>
+              <p className="mt-3 text-xs text-muted">
+                ※ これは簡易モデルによる目安であり、厳密なソルバー解ではありません。
+              </p>
+            </FeedbackBanner>
+            <Button onClick={next} size="lg" className="w-full">
+              次の問題
+            </Button>
+          </div>
+        )}
+      </Panel>
+
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-3 lg:grid-cols-1">
+          <StatBadge label="正答率" value={`${(accuracy(stats) * 100).toFixed(0)}%`} accent="gold" />
+          <StatBadge label="連続正解" value={stats.streak} accent="accent" />
+          <StatBadge label="問題数" value={stats.attempts} accent="muted" />
+        </div>
+        <Panel className="hidden lg:block">
+          <h3 className="text-sm font-semibold">考え方</h3>
+          <ul className="mt-2 space-y-2 text-xs text-muted">
+            <li>追加回収必要額 = コール額 ÷ 実勝率 −（ポット + コール額）</li>
+            <li>隠れたドローほど回収期待が大きい（フラッシュは読まれやすく回収が少なめ）</li>
+            <li>見込み回収額 ≥ 必要追加回収額 なら コール</li>
+          </ul>
         </Panel>
       </div>
     </div>

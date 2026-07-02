@@ -122,20 +122,7 @@ export function RangeTrainer() {
       {/* 人数セレクタ */}
       <div className="mb-5 flex items-center gap-2">
         <span className="text-xs text-muted">人数:</span>
-        {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-          <button
-            key={n}
-            onClick={() => setSeatCount(n)}
-            className={cn(
-              'rounded-lg px-2.5 py-1 text-xs font-medium transition',
-              seatCount === n
-                ? 'bg-accent text-[#04221a]'
-                : 'border border-border text-muted hover:text-text',
-            )}
-          >
-            {n}
-          </button>
-        ))}
+        <SeatCountSelector seatCount={seatCount} onChange={setSeatCount} />
       </div>
 
       {tab === 'chart' ? (
@@ -143,7 +130,33 @@ export function RangeTrainer() {
       ) : (
         <DrillView key={`${mode}:${seatCount}`} mode={mode} seatCount={seatCount} />
       )}
+
+      <div className="mt-5 flex items-center gap-2">
+        <span className="text-xs text-muted">人数を切り替えて比較:</span>
+        <SeatCountSelector seatCount={seatCount} onChange={setSeatCount} />
+      </div>
     </div>
+  );
+}
+
+function SeatCountSelector({ seatCount, onChange }: { seatCount: number; onChange: (n: number) => void }) {
+  return (
+    <>
+      {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+        <button
+          key={n}
+          onClick={() => onChange(n)}
+          className={cn(
+            'rounded-lg px-2.5 py-1 text-xs font-medium transition',
+            seatCount === n
+              ? 'bg-accent text-[#04221a]'
+              : 'border border-border text-muted hover:text-text',
+          )}
+        >
+          {n}
+        </button>
+      ))}
+    </>
   );
 }
 

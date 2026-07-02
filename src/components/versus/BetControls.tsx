@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { cn } from '../../lib/cn';
 import type { LegalActions } from '../../core/game/engine';
 import type { PlayerAction } from '../../core/game/types';
+import { useDisplayPrefs } from '../../store/displayPrefs';
+import { formatAmount } from '../../lib/chips';
 
 type BetControlsProps = {
   legal: LegalActions;
@@ -22,6 +24,7 @@ function clamp(val: number, min: number, max: number): number {
 }
 
 export function BetControls({ legal, potForSizing, onAction }: BetControlsProps) {
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
   const canBetOrRaise = legal.canBet || legal.canRaise;
   const betActionType = legal.canBet ? 'bet' : 'raise';
 
@@ -53,7 +56,7 @@ export function BetControls({ legal, potForSizing, onAction }: BetControlsProps)
   };
 
   const baseButtonClass =
-    'flex-1 rounded-xl border py-2.5 text-sm font-semibold transition active:scale-95';
+    'flex-1 rounded-xl border py-3 sm:py-2.5 text-sm font-semibold transition active:scale-95';
 
   return (
     <div className="flex flex-col gap-3">
@@ -87,7 +90,7 @@ export function BetControls({ legal, potForSizing, onAction }: BetControlsProps)
               'border-accent/40 bg-accent/10 text-accent-bright hover:bg-accent/20',
             )}
           >
-            Call {legal.callAmount.toFixed(1)}bb
+            Call {formatAmount(legal.callAmount, chipDisplay)}
           </button>
         ) : null}
 
@@ -99,7 +102,7 @@ export function BetControls({ legal, potForSizing, onAction }: BetControlsProps)
               'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20',
             )}
           >
-            {legal.canBet ? 'Bet' : 'Raise'} {clamp(betTo, legal.minBetTo, legal.maxBetTo).toFixed(1)}bb
+            {legal.canBet ? 'Bet' : 'Raise'} {formatAmount(clamp(betTo, legal.minBetTo, legal.maxBetTo), chipDisplay)}
           </button>
         )}
       </div>
@@ -108,7 +111,7 @@ export function BetControls({ legal, potForSizing, onAction }: BetControlsProps)
       {canBetOrRaise && (
         <div className="flex flex-col gap-2">
           {/* Presets */}
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {SIZE_PRESETS.map((preset) => {
               const size = computePresetSize(preset.ratio);
               return (
@@ -140,7 +143,7 @@ export function BetControls({ legal, potForSizing, onAction }: BetControlsProps)
               className="h-1.5 w-full cursor-pointer accent-accent-bright"
             />
             <span className="w-16 text-right font-mono text-sm text-accent-bright tabular-nums">
-              {clamp(betTo, legal.minBetTo, legal.maxBetTo).toFixed(1)}bb
+              {formatAmount(clamp(betTo, legal.minBetTo, legal.maxBetTo), chipDisplay)}
             </span>
           </div>
         </div>

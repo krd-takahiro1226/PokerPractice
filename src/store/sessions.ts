@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { SessionFormat } from '../core/game/session';
+import type { SessionFormat, SessionState } from '../core/game/session';
 import type { GameMode } from '../core/ranges/mode';
 import type { GameConfig } from '../core/game/types';
 import { currentUserId } from './persistence';
 import { insertSession, updateSession, fetchSessions } from './remote/sessions';
+
+export type ActiveSession = { recordId: string; state: SessionState; savedAt: number };
 
 export type SessionRecord = {
   id: string;
@@ -22,6 +24,7 @@ export type SessionRecord = {
 type SessionsState = {
   sessions: SessionRecord[];
   loaded: boolean;
+  activeSession: ActiveSession | null;
   /** セッション開始: localStorage に即時保存。ログイン時は DB にも insert。生成した ID を返す。 */
   createSession: (
     params: Pick<SessionRecord, 'format' | 'mode' | 'difficulty' | 'startingStack'>,
@@ -33,6 +36,9 @@ type SessionsState = {
   ) => Promise<void>;
   /** DB から取得してローカルキャッシュを更新。ログイン時のみ意味あり。 */
   loadFromCloud: () => Promise<void>;
+  /** ハンド間の SessionState を localStorage に即時保存（同期・local のみ）。 */
+  saveActiveSession: (recordId: string, state: SessionState) => void;
+  clearActiveSession: () => void;
 };
 
 const MAX_SESSIONS = 50;
@@ -47,6 +53,7 @@ export const useSessions = create<SessionsState>()(
     (set, get) => ({
       sessions: [],
       loaded: false,
+      activeSession: null,
 
       createSession: async (params) => {
         const id = generateId();
@@ -111,10 +118,25 @@ export const useSessions = create<SessionsState>()(
           // ネットワーク失敗はローカル state を保持
         }
       },
+
+      saveActiveSession: (recordId, state) => {
+        set({ activeSession: { recordId, state, savedAt: Date.now() } });
+      },
+
+      clearActiveSession: () => {
+        set({ activeSession: null });
+      },
     }),
     {
       name: LOCAL_KEY,
-      version: 1,
+      version: 2,
+      migrate: (persisted: unknown, version: number) => {
+        const state = persisted as SessionsState;
+        if (version < 2) {
+          return { ...state, activeSession: null } as SessionsState;
+        }
+        return state;
+      },
     },
   ),
 );

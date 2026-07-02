@@ -24,6 +24,7 @@ export type VersusController = {
   setDifficulty: (d: GameConfig['difficulty']) => void;
   mode: GameMode;
   setMode: (m: GameMode) => void;
+  heroRebought: boolean;
 };
 
 const DEFAULT_CONFIG_BASE = {
@@ -179,6 +180,8 @@ export function useVersusGame(): VersusController {
     });
   }, [state.toAct]);
 
+  const [heroRebought, setHeroRebought] = useState(false);
+
   const newHand = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -188,8 +191,11 @@ export function useVersusGame(): VersusController {
     savedRef.current = null;
     const d = pendingDifficulty.current;
     const m = pendingMode.current;
-    setState((prev) => startHand(prev, makeConfig(d, m)));
-  }, []);
+    const config = makeConfig(d, m);
+    const seatStacks = state.players.map((p) => (p.stack <= 0 ? config.startingStack : p.stack));
+    setHeroRebought(state.players[0].stack <= 0);
+    setState((prev) => startHand(prev, config, seatStacks));
+  }, [state]);
 
   const setDifficulty = useCallback((d: GameConfig['difficulty']) => {
     pendingDifficulty.current = d;
@@ -211,5 +217,6 @@ export function useVersusGame(): VersusController {
     setDifficulty,
     mode,
     setMode,
+    heroRebought,
   };
 }

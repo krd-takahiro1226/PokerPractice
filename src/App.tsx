@@ -5,6 +5,7 @@ import { RangeTrainer } from './pages/RangeTrainer';
 import { EquityCalc } from './pages/EquityCalc';
 import { PotOdds } from './pages/PotOdds';
 import { Quiz } from './pages/Quiz';
+import { PerceivedRange } from './pages/PerceivedRange';
 import { Cbet } from './pages/Cbet';
 import { Versus } from './pages/Versus';
 import { Stats } from './pages/Stats';
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
       { path: 'pot-odds', element: <PotOdds /> },
       { path: 'cbet', element: <Cbet /> },
       { path: 'quiz', element: <Quiz /> },
+      { path: 'perceived', element: <PerceivedRange /> },
       { path: 'stats', element: <Stats /> },
       { path: 'review', element: <Review /> },
       { path: 'glossary', element: <Glossary /> },

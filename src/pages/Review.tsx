@@ -14,6 +14,7 @@ const DRILL_KIND_LABEL: Record<string, string> = {
   reqEquity: '必要勝率',
   mdf: 'MDF',
   cbet: 'CB',
+  perceived: '相手目線レンジ',
 };
 
 type ReviewMode = 'mistakes' | 'bookmarks';

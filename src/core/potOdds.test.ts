@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  equityFromOuts,
+  genImpliedDrill,
   genMdfDrill,
   genReqEquityDrill,
   mdf,
   mdfChoices,
   potOdds,
+  requiredImpliedAmount,
   reqEquityChoices,
 } from './potOdds';
 
@@ -154,5 +157,96 @@ describe('mdfChoices', () => {
 
   it('returns 4 choices', () => {
     expect(mdfChoices(100, 100).length).toBe(4);
+  });
+});
+
+describe('requiredImpliedAmount', () => {
+  it('returns 0 when equity is exactly potOdds(pot, toCall)', () => {
+    const pot = 100;
+    const toCall = 50;
+    const equity = potOdds(pot, toCall); // 1/3
+    expect(requiredImpliedAmount(pot, toCall, equity)).toBeCloseTo(0, 10);
+  });
+
+  it('matches hand-calculated value', () => {
+    // pot=100, toCall=100, equity=0.2 → X = 100/0.2 - 200 = 300
+    expect(requiredImpliedAmount(100, 100, 0.2)).toBeCloseTo(300, 10);
+  });
+
+  it('another hand-calculated value', () => {
+    // pot=60, toCall=40, equity=0.25 → X = 40/0.25 - 100 = 60
+    expect(requiredImpliedAmount(60, 40, 0.25)).toBeCloseTo(60, 10);
+  });
+
+  it('never returns negative (equity comfortably above potOdds)', () => {
+    // pot=100, toCall=20, potOdds ≈ 0.1667, equity=0.5 way above required
+    const result = requiredImpliedAmount(100, 20, 0.5);
+    expect(result).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('genImpliedDrill', () => {
+  function makeRng(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 1664525 + 1013904223) & 0xffffffff;
+      return (s >>> 0) / 0x100000000;
+    };
+  }
+
+  const RUNS = 200;
+
+  it('pot/toCall/behindStack are within spec ranges', () => {
+    for (let seed = 0; seed < RUNS; seed++) {
+      const d = genImpliedDrill(makeRng(seed + 1));
+      expect(d.pot).toBeGreaterThanOrEqual(40);
+      expect(d.pot).toBeLessThanOrEqual(300);
+      expect(d.pot % 10).toBe(0);
+
+      expect(d.toCall).toBeGreaterThanOrEqual(20);
+      expect(d.toCall % 10).toBe(0);
+
+      expect(d.behindStack).toBeGreaterThanOrEqual(100);
+      expect(d.behindStack).toBeLessThanOrEqual(600);
+      expect(d.behindStack % 10).toBe(0);
+    }
+  });
+
+  it('requiredExtra matches requiredImpliedAmount(pot, toCall, equity)', () => {
+    for (let seed = 0; seed < RUNS; seed++) {
+      const d = genImpliedDrill(makeRng(seed + 1));
+      const cardsToCome = d.street === 'flop' ? 2 : 1;
+      const equity = equityFromOuts(d.outs, cardsToCome);
+      const expected = requiredImpliedAmount(d.pot, d.toCall, equity);
+      expect(d.requiredExtra).toBeCloseTo(expected, 6);
+    }
+  });
+
+  it('answer is consistent with requiredExtra <= collectFactor * behindStack', () => {
+    for (let seed = 0; seed < RUNS; seed++) {
+      const d = genImpliedDrill(makeRng(seed + 1));
+      const expectedAnswer = d.requiredExtra <= d.collectFactor * d.behindStack ? 'call' : 'fold';
+      expect(d.answer).toBe(expectedAnswer);
+    }
+  });
+
+  it('collectFactor matches drawId category', () => {
+    for (let seed = 0; seed < RUNS; seed++) {
+      const d = genImpliedDrill(makeRng(seed + 1));
+      if (['flush', 'fd-gutshot', 'fd-oesd'].includes(d.drawId)) {
+        expect(d.collectFactor).toBe(0.3);
+      } else if (['gutshot', 'oesd'].includes(d.drawId)) {
+        expect(d.collectFactor).toBe(0.5);
+      } else {
+        expect(d.collectFactor).toBe(0.2);
+      }
+    }
+  });
+
+  it('street is flop or turn', () => {
+    for (let seed = 0; seed < RUNS; seed++) {
+      const d = genImpliedDrill(makeRng(seed + 1));
+      expect(['flop', 'turn']).toContain(d.street);
+    }
   });
 });

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { localPort, currentUserId } from './persistence';
 import { insertAttempts, fetchAttempts } from './remote/attempts';
 
-export type DrillKind = 'range' | 'quiz' | 'potOdds' | 'reqEquity' | 'mdf' | 'cbet';
+export type DrillKind = 'range' | 'quiz' | 'potOdds' | 'reqEquity' | 'mdf' | 'cbet' | 'perceived';
 
 export type QuizAttempt = {
   id: string;

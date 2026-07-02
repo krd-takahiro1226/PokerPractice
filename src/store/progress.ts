@@ -19,6 +19,7 @@ type ProgressState = {
   reqEquity: DrillStats;
   mdf: DrillStats;
   cbet: DrillStats;
+  perceived: DrillStats;
   byScenario: Record<string, ScenarioStat>;
   recordRange: (scenarioId: string, correct: boolean) => void;
   recordPotOdds: (correct: boolean) => void;
@@ -26,6 +27,7 @@ type ProgressState = {
   recordReqEquity: (correct: boolean) => void;
   recordMdf: (correct: boolean) => void;
   recordCbet: (correct: boolean) => void;
+  recordPerceived: (correct: boolean) => void;
   reset: () => void;
 };
 
@@ -48,6 +50,7 @@ export const useProgress = create<ProgressState>()(
       reqEquity: emptyStats(),
       mdf: emptyStats(),
       cbet: emptyStats(),
+      perceived: emptyStats(),
       byScenario: {},
       recordRange: (scenarioId, correct) =>
         set((s) => {
@@ -68,6 +71,7 @@ export const useProgress = create<ProgressState>()(
       recordReqEquity: (correct) => set((s) => ({ reqEquity: bump(s.reqEquity, correct) })),
       recordMdf: (correct) => set((s) => ({ mdf: bump(s.mdf, correct) })),
       recordCbet: (correct) => set((s) => ({ cbet: bump(s.cbet, correct) })),
+      recordPerceived: (correct) => set((s) => ({ perceived: bump(s.perceived, correct) })),
       reset: () =>
         set({
           range: emptyStats(),
@@ -76,6 +80,7 @@ export const useProgress = create<ProgressState>()(
           reqEquity: emptyStats(),
           mdf: emptyStats(),
           cbet: emptyStats(),
+          perceived: emptyStats(),
           byScenario: {},
         }),
     }),

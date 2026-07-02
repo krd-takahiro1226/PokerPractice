@@ -1,6 +1,8 @@
 import { cn } from '../../lib/cn';
 import { PlayingCard } from '../PlayingCard';
 import type { PlayerState } from '../../core/game/types';
+import { useDisplayPrefs } from '../../store/displayPrefs';
+import { formatAmount } from '../../lib/chips';
 
 type SeatViewProps = {
   player: PlayerState;
@@ -18,11 +20,15 @@ const STATUS_LABEL: Record<PlayerState['status'], string> = {
 export function SeatView({ player, isToAct, showCards = false, className }: SeatViewProps) {
   const isFolded = player.status === 'folded';
   const isAllin = player.status === 'allin';
+  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
+
+  const showFaceUp = showCards || player.isHero;
+  const hideOnMobile = !player.isHero && !showCards;
 
   return (
     <div
       className={cn(
-        'relative flex flex-col items-center gap-1 rounded-xl border p-2 text-center transition-all',
+        'relative flex flex-col items-center gap-1 rounded-xl border p-1.5 text-center transition-all sm:p-2',
         isFolded
           ? 'border-border/40 bg-surface/30 opacity-50'
           : isToAct
@@ -39,8 +45,8 @@ export function SeatView({ player, isToAct, showCards = false, className }: Seat
 
       {/* Cards */}
       {player.hole ? (
-        <div className="flex gap-0.5">
-          {(showCards || player.isHero) ? (
+        <div className={cn('flex gap-0.5', hideOnMobile && 'hidden sm:flex')}>
+          {showFaceUp ? (
             <>
               <PlayingCard card={player.hole[0]} size="sm" />
               <PlayingCard card={player.hole[1]} size="sm" />
@@ -53,7 +59,7 @@ export function SeatView({ player, isToAct, showCards = false, className }: Seat
           )}
         </div>
       ) : (
-        <div className="flex gap-0.5 opacity-30">
+        <div className={cn('flex gap-0.5 opacity-30', hideOnMobile && 'hidden sm:flex')}>
           <PlayingCard faceDown size="sm" />
           <PlayingCard faceDown size="sm" />
         </div>
@@ -66,7 +72,7 @@ export function SeatView({ player, isToAct, showCards = false, className }: Seat
         ) : isAllin ? (
           <span className="text-amber-400">ALL-IN</span>
         ) : (
-          <span className="text-text">{player.stack.toFixed(1)}bb</span>
+          <span className="text-text">{formatAmount(player.stack, chipDisplay)}</span>
         )}
       </div>
 
@@ -74,7 +80,7 @@ export function SeatView({ player, isToAct, showCards = false, className }: Seat
       {player.committedStreet > 0 && !isFolded && (
         <div className="absolute -bottom-4 left-1/2 -translate-x-1/2">
           <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-black shadow">
-            {player.committedStreet.toFixed(1)}
+            {formatAmount(player.committedStreet, chipDisplay)}
           </span>
         </div>
       )}
