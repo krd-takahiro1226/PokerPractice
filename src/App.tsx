@@ -10,6 +10,7 @@ import { Versus } from './pages/Versus';
 import { Stats } from './pages/Stats';
 import { Review } from './pages/Review';
 import { Sessions } from './pages/Sessions';
+import { Glossary } from './pages/Glossary';
 
 const router = createBrowserRouter([
   {
@@ -24,6 +25,7 @@ const router = createBrowserRouter([
       { path: 'quiz', element: <Quiz /> },
       { path: 'stats', element: <Stats /> },
       { path: 'review', element: <Review /> },
+      { path: 'glossary', element: <Glossary /> },
       { path: 'sessions', element: <Sessions /> },
       {
         path: 'versus',

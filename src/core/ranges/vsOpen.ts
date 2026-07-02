@@ -1,6 +1,7 @@
 import { TIERS, BB_CALL } from './yokosawa';
 import type { HandClass } from '../handNotation';
 import type { Position, Range } from './types';
+import { seatLabels, playersBehind, maxTierForSeats } from './seats';
 
 export type VsOpenScenario = {
   id: string;
@@ -70,4 +71,62 @@ export const VSOPEN_SCENARIOS: VsOpenScenario[] = buildScenarios();
 
 export function getVsOpen(heroPos: Position, villainPos: Position): VsOpenScenario | undefined {
   return VSOPEN_SCENARIOS.find((s) => s.heroPos === heroPos && s.villainPos === villainPos);
+}
+
+export type VsOpenSeatScenario = {
+  id: string;
+  label: string;
+  heroPos: string;
+  villainPos: string;
+  range: Range;
+  callMaxTier: number;
+};
+
+/** 人数 n → 全 vs open シナリオ配列。n===6 のとき VSOPEN_SCENARIOS と同一内容を返す。 */
+export function getVsOpenScenariosForSeats(n: number): VsOpenSeatScenario[] {
+  const seats = seatLabels(n);
+  const btnPos = n === 2 ? 'SB' : seats[seats.length - 3]; // HU では SB がボタン
+  const out: VsOpenSeatScenario[] = [];
+
+  for (let oi = 0; oi < seats.length; oi++) {
+    const openerPos = seats[oi];
+    if (openerPos === 'BB') continue; // BB は opener にならない
+
+    const b = playersBehind(n, oi);
+    const baseTier = maxTierForSeats(b);
+
+    for (let hi = oi + 1; hi < seats.length; hi++) {
+      const heroPos = seats[hi];
+      const isBB = heroPos === 'BB';
+      const callMaxTier = isBB ? Math.min(7, baseTier + 1) : baseTier;
+
+      // call ハンド: tier 2..callMaxTier minus RAISE_SET
+      const callHands: HandClass[] = TIERS.slice(1, callMaxTier).flat().filter((h) => !RAISE_SET.has(h));
+
+      // BB が BTN オープンに対するときのみ BB_CALL を追加
+      if (isBB && openerPos === btnPos) {
+        for (const h of BB_CALL) if (!RAISE_SET.has(h)) callHands.push(h);
+      }
+
+      const range: Range = {};
+      for (const h of callHands) range[h] = { call: 1 };
+      for (const h of BB_DEF_RAISE) range[h] = { raise: 1 };
+
+      // n===6 のとき id にサフィックスなし（既存と同一形式）
+      const id = n === 6
+        ? `vs${openerPos}_from${heroPos}`
+        : `vs${openerPos}_from${heroPos}_${n}max`;
+
+      out.push({
+        id,
+        label: `vs ${openerPos} open（あなた${heroPos}）`,
+        heroPos,
+        villainPos: openerPos,
+        range,
+        callMaxTier,
+      });
+    }
+  }
+
+  return out;
 }

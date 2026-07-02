@@ -28,25 +28,30 @@ type RangeGridProps = {
   highlight?: HandClass | null;
   onCellClick?: (hand: HandClass) => void;
   className?: string;
+  cellColors?: Partial<Record<HandClass, { bg: string; fg: string }>>;
 };
 
-export function RangeGrid({ range, highlight, onCellClick, className }: RangeGridProps) {
+export function RangeGrid({ range, highlight, onCellClick, className, cellColors }: RangeGridProps) {
   return (
     <div className={cn('grid grid-cols-[repeat(13,minmax(0,1fr))] gap-[2px]', className)}>
       {HAND_GRID.flat().map((hand) => {
         const action = range[hand];
         const isHi = highlight === hand;
         const played = (action?.raise ?? 0) + (action?.call ?? 0) > 0;
+        const customColor = cellColors?.[hand];
+        const style: CSSProperties = customColor
+          ? { backgroundColor: customColor.bg, color: customColor.fg }
+          : cellStyle(action);
         return (
           <button
             key={hand}
             type="button"
             onClick={onCellClick ? () => onCellClick(hand) : undefined}
             title={hand}
-            style={cellStyle(action)}
+            style={style}
             className={cn(
               'relative flex aspect-square items-center justify-center rounded-[3px] text-[7px] font-semibold leading-none transition sm:text-[10px]',
-              played ? 'text-white/95' : 'text-muted/70',
+              !customColor && (played ? 'text-white/95' : 'text-muted/70'),
               onCellClick && 'cursor-pointer hover:z-10 hover:scale-110 hover:ring-1 hover:ring-white/40',
               isHi && 'z-20 scale-110 ring-2 ring-gold ring-offset-1 ring-offset-bg animate-pulse',
             )}

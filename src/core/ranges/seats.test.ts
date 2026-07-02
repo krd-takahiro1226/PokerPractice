@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { seatLabels, maxTierForSeats, maxTierForSeatsMode, playersBehind } from './seats';
+import { seatLabels, maxTierForSeats, maxTierForSeatsMode, playersBehind, getRfiScenariosForSeats } from './seats';
+import { getRfiScenarios } from './rfi';
+import { TIERS } from './yokosawa';
 
 describe('seatLabels', () => {
   it('seatLabels(6) = UTG,HJ,CO,BTN,SB,BB', () => {
@@ -52,5 +54,53 @@ describe('maxTierForSeatsMode', () => {
     expect(maxTierForSeatsMode(3, 'tournament')).toBe(6);
     expect(maxTierForSeatsMode(3, 'cash-ante')).toBe(6);
     expect(maxTierForSeatsMode(3, 'cash-noante')).toBe(5);
+  });
+});
+
+describe('getRfiScenariosForSeats', () => {
+  it('n=9: BB が含まれず SB は含まれる、席数が 8', () => {
+    const scenarios = getRfiScenariosForSeats(9, 'tournament');
+    expect(scenarios.every(s => s.heroPos !== 'BB')).toBe(true);
+    const sb = scenarios.find(s => s.heroPos === 'SB')!;
+    expect(sb.sizeBB).toBe(3.0);
+    expect(sb.maxTier).toBe(7); // 後ろ1人
+    expect(scenarios).toHaveLength(8); // 9 seats minus BB
+  });
+
+  it('n=6: 既存 getRfiScenarios とポジション・id・レンジが一致する', () => {
+    const generated = getRfiScenariosForSeats(6, 'tournament');
+    const baseline = getRfiScenarios('tournament');
+    expect(generated.map(s => s.heroPos)).toEqual(baseline.map(s => s.heroPos));
+    expect(generated.map(s => s.id)).toEqual(baseline.map(s => s.id));
+    expect(generated.map(s => s.sizeBB)).toEqual(baseline.map(s => s.sizeBB));
+    for (let i = 0; i < baseline.length; i++) {
+      expect(generated[i].range).toEqual(baseline[i].range);
+    }
+  });
+
+  it('n=2 (HU): SB のみがオープナー、maxTier = 7', () => {
+    const scenarios = getRfiScenariosForSeats(2, 'tournament');
+    expect(scenarios.map(s => s.heroPos)).toEqual(['SB']);
+    expect(scenarios[0].maxTier).toBe(7);
+  });
+
+  it('n=9: UTG の maxTier = 3 (tournament)', () => {
+    const scenarios = getRfiScenariosForSeats(9, 'tournament');
+    const utg = scenarios.find(s => s.heroPos === 'UTG')!;
+    expect(utg.maxTier).toBe(3);
+  });
+
+  it('n=9: UTG の maxTier = 2 (cash-noante)', () => {
+    const scenarios = getRfiScenariosForSeats(9, 'cash-noante');
+    const utg = scenarios.find(s => s.heroPos === 'UTG')!;
+    expect(utg.maxTier).toBe(2);
+  });
+
+  it('n=9: range のハンド数が TIERS.slice(0, maxTier).flat().length と一致', () => {
+    const scenarios = getRfiScenariosForSeats(9, 'tournament');
+    for (const s of scenarios) {
+      const expected = TIERS.slice(0, s.maxTier).flat().length;
+      expect(Object.keys(s.range)).toHaveLength(expected);
+    }
   });
 });

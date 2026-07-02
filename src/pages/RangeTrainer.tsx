@@ -12,7 +12,7 @@ import { StatBadge } from '../components/StatBadge';
 import { cn } from '../lib/cn';
 import { pick, shuffle } from '../lib/random';
 import { makeDeck } from '../core/cards';
-import { cardsToHandClass, type HoleCards } from '../core/handNotation';
+import { cardsToHandClass, type HoleCards, type HandClass } from '../core/handNotation';
 import {
   getRfiScenarios,
   GAME_MODES,
@@ -20,14 +20,13 @@ import {
   TIERS,
   maxTierFor,
   type Action,
-  type Scenario,
   primaryAction,
 } from '../core/ranges';
 import type { GameMode } from '../core/ranges/mode';
 import { openPercent } from '../core/ranges/expand';
 import { accuracy, useProgress } from '../store/progress';
-import { VSOPEN_SCENARIOS, getVsOpen } from '../core/ranges/vsOpen';
-import { seatLabels, maxTierForSeatsMode, playersBehind } from '../core/ranges/seats';
+import { getVsOpenScenariosForSeats, type VsOpenSeatScenario } from '../core/ranges/vsOpen';
+import { seatLabels, getRfiScenariosForSeats, type SeatScenario } from '../core/ranges/seats';
 import type { Range } from '../core/ranges/types';
 import type { Position } from '../core/ranges/types';
 import { getEffectiveRange, rfiKey, vsOpenKey } from '../core/ranges/effective';
@@ -39,10 +38,13 @@ type ChartKind = 'rfi' | 'vsOpen';
 
 const ACTION_LABEL: Record<Action, string> = { raise: 'オープン (レイズ)', call: 'コール', fold: 'フォールド' };
 
-type Drill = { scenario: Scenario; cards: HoleCards; hand: string };
+type DrillScenario = { id: string; label: string; heroPos: string; range: Range };
+type Drill = { scenario: DrillScenario; cards: HoleCards; hand: string };
 
-function dealDrill(mode: GameMode): Drill {
-  const scenarios = getRfiScenarios(mode);
+function dealDrill(mode: GameMode, seatCount: number): Drill {
+  const scenarios: DrillScenario[] = seatCount === 6
+    ? getRfiScenarios(mode)
+    : getRfiScenariosForSeats(seatCount, mode);
   const scenario = pick(scenarios);
   const [c1, c2] = shuffle(makeDeck()).slice(0, 2) as HoleCards;
   return { scenario, cards: [c1, c2], hand: cardsToHandClass(c1, c2) };
@@ -60,6 +62,16 @@ const TIER_COLORS = [
 ];
 const TIER_NAMES = ['tier1（紺）', 'tier2（赤）', 'tier3（黄）', 'tier4（緑）', 'tier5（青）', 'tier6（白）', 'tier7（紫）'];
 
+const TIER_CELL_COLORS: { bg: string; fg: string }[] = [
+  { bg: '#1e3a8a', fg: '#dbeafe' }, // tier1
+  { bg: '#b91c1c', fg: '#fee2e2' }, // tier2
+  { bg: '#eab308', fg: '#713f12' }, // tier3
+  { bg: '#16a34a', fg: '#dcfce7' }, // tier4
+  { bg: '#3b82f6', fg: '#dbeafe' }, // tier5
+  { bg: '#f3f4f6', fg: '#111827' }, // tier6
+  { bg: '#9333ea', fg: '#f3e8ff' }, // tier7
+];
+
 export function RangeTrainer() {
   const [tab, setTab] = useState<Tab>('chart');
   const [mode, setMode] = useState<GameMode>('tournament');
@@ -69,7 +81,7 @@ export function RangeTrainer() {
     <div>
       <PageHeader
         title="プリフロップ・レンジ訓練"
-        description="6-max 100bb のオープンレンジ。まずチャートで形を覚え、ドリルで反復しよう。"
+        description="2〜10人テーブル・100bb のオープンレンジ。まずチャートで形を覚え、ドリルで反復しよう。"
       />
 
       {/* タブ */}
@@ -124,15 +136,12 @@ export function RangeTrainer() {
             {n}
           </button>
         ))}
-        {seatCount > 6 && (
-          <span className="text-xs text-amber-400">RFI チャート閲覧のみ</span>
-        )}
       </div>
 
       {tab === 'chart' ? (
         <ChartView mode={mode} seatCount={seatCount} />
       ) : (
-        <DrillView mode={mode} />
+        <DrillView key={`${mode}:${seatCount}`} mode={mode} seatCount={seatCount} />
       )}
     </div>
   );
@@ -141,42 +150,30 @@ export function RangeTrainer() {
 function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
   const [chartKind, setChartKind] = useState<ChartKind>('rfi');
   const [editMode, setEditMode] = useState(false);
+  const [colorMode, setColorMode] = useState<'action' | 'tier'>('action');
   const { ranges: customRanges, setRange, resetRange } = useCustomRanges();
   const is6max = seatCount === 6;
 
-  // RFI 用: seatLabels から動的に tier-based range を生成
-  const rfiScenarios = useMemo(() => {
-    if (is6max) return getRfiScenarios(mode);
-    const labels = seatLabels(seatCount);
-    // BB除く RFI 対象席のみ
-    return labels
-      .map((label, idx) => ({ label, idx }))
-      .filter(({ label }) => label !== 'BB' && label !== 'SB')
-      .map(({ label, idx }) => {
-        const b = playersBehind(seatCount, idx);
-        const maxTier = maxTierForSeatsMode(b, mode);
-        const range: Range = {};
-        for (const hand of TIERS.slice(0, maxTier).flat()) range[hand] = { raise: 1 };
-        return {
-          id: `RFI_${label}_${seatCount}max`,
-          label: `${label} オープン`,
-          heroPos: label,
-          range,
-          sizeBB: 2.5,
-        };
-      });
-  }, [mode, seatCount, is6max]);
+  // RFI 用シナリオ
+  const rfiScenarios = useMemo(
+    () => getRfiScenariosForSeats(seatCount, mode),
+    [mode, seatCount],
+  );
 
   const [rfiScenarioId, setRfiScenarioId] = useState<string>('');
-  const activeRfiScenario = (rfiScenarios.find((s) => s.id === rfiScenarioId) ?? rfiScenarios[0]);
+  const activeRfiScenario: SeatScenario | undefined =
+    rfiScenarios.find((s) => s.id === rfiScenarioId) ?? rfiScenarios[0];
 
   // vs-open 用
+  const vsOpenScenarios = useMemo(() => getVsOpenScenariosForSeats(seatCount), [seatCount]);
   const [vsOpenIdx, setVsOpenIdx] = useState<number>(0);
-  const vsOpenScenario = VSOPEN_SCENARIOS[vsOpenIdx];
+  // 人数変更でシナリオ数が減ったとき選択を先頭に戻す
+  const effectiveVsOpenIdx = vsOpenIdx < vsOpenScenarios.length ? vsOpenIdx : 0;
+  const vsOpenScenario: VsOpenSeatScenario | undefined = vsOpenScenarios[effectiveVsOpenIdx];
 
   const currentKey = chartKind === 'rfi' && is6max
     ? rfiKey(activeRfiScenario?.heroPos as Position)
-    : chartKind === 'vsOpen'
+    : chartKind === 'vsOpen' && is6max
       ? vsOpenKey(vsOpenScenario?.villainPos as Position, vsOpenScenario?.heroPos as Position)
       : null;
 
@@ -195,9 +192,25 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
     [chartKind, activeRange],
   );
 
-  const activeMaxTier = (chartKind === 'rfi' && is6max)
-    ? maxTierFor(mode, activeRfiScenario?.heroPos as any)
-    : undefined;
+  const activeMaxTier: number | undefined = (() => {
+    if (chartKind === 'rfi') {
+      if (is6max) return maxTierFor(mode, activeRfiScenario?.heroPos as any);
+      return activeRfiScenario?.maxTier;
+    }
+    // vsOpen
+    return vsOpenScenario?.callMaxTier;
+  })();
+
+  // tier color map for RFI tier mode
+  const tierCellColors = useMemo(() => {
+    if (colorMode !== 'tier' || chartKind !== 'rfi' || activeMaxTier === undefined) return undefined;
+    const colors: Partial<Record<HandClass, { bg: string; fg: string }>> = {};
+    TIERS.slice(0, activeMaxTier).forEach((hands, tierIdx) => {
+      const c = TIER_CELL_COLORS[tierIdx];
+      for (const h of hands) colors[h as HandClass] = c;
+    });
+    return colors;
+  }, [colorMode, chartKind, activeMaxTier]);
 
   function handleCellClick(hand: string) {
     if (!editMode || !is6max || chartKind !== 'rfi' || !currentKey) return;
@@ -227,21 +240,16 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
           >
             RFI
           </button>
-          {is6max && (
-            <button
-              onClick={() => setChartKind('vsOpen')}
-              className={cn(
-                'rounded-lg px-4 py-1.5 text-sm font-medium transition',
-                chartKind === 'vsOpen' ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
-              )}
-            >
-              vs open ディフェンス
-            </button>
-          )}
+          <button
+            onClick={() => setChartKind('vsOpen')}
+            className={cn(
+              'rounded-lg px-4 py-1.5 text-sm font-medium transition',
+              chartKind === 'vsOpen' ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
+            )}
+          >
+            vs open ディフェンス
+          </button>
         </div>
-        {!is6max && chartKind === 'vsOpen' && (
-          <span className="text-xs text-amber-400">vs open は 6-max のみ対応</span>
-        )}
       </div>
 
       {/* シナリオセレクタ */}
@@ -264,13 +272,13 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {VSOPEN_SCENARIOS.map((s, idx) => (
+          {vsOpenScenarios.map((s, idx) => (
             <button
               key={s.id}
               onClick={() => setVsOpenIdx(idx)}
               className={cn(
                 'rounded-xl border px-4 py-2 text-sm font-medium transition',
-                idx === vsOpenIdx
+                idx === effectiveVsOpenIdx
                   ? 'border-accent bg-accent/15 text-accent-bright'
                   : 'border-border bg-surface-2/40 text-muted hover:text-text',
               )}
@@ -283,9 +291,12 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
 
       <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
         <div className="space-y-4">
-          {chartKind === 'rfi' && activeRfiScenario && is6max && (
+          {chartKind === 'rfi' && activeRfiScenario && (
             <Panel>
-              <PositionTable hero={activeRfiScenario.heroPos as any} />
+              <PositionTable
+                hero={activeRfiScenario.heroPos}
+                seats={seatLabels(seatCount)}
+              />
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <StatBadge label="ポジション" value={activeRfiScenario.heroPos} accent="accent" />
                 <StatBadge label="オープンサイズ" value={`${activeRfiScenario.sizeBB}bb`} accent="muted" />
@@ -295,7 +306,12 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
 
           {chartKind === 'vsOpen' && vsOpenScenario && (
             <Panel>
-              <div className="space-y-1 text-sm">
+              <PositionTable
+                hero={vsOpenScenario.heroPos}
+                seats={seatLabels(seatCount)}
+                highlightVillain={[vsOpenScenario.villainPos]}
+              />
+              <div className="mt-3 space-y-1 text-sm">
                 <div><span className="text-muted">opener: </span><span className="font-semibold">{vsOpenScenario.villainPos}</span></div>
                 <div><span className="text-muted">hero: </span><span className="font-semibold">{vsOpenScenario.heroPos}</span></div>
               </div>
@@ -352,7 +368,7 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
 
         <Panel>
           {is6max && chartKind === 'rfi' && (
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => setEditMode((v) => !v)}
                 className={cn(
@@ -376,9 +392,40 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
               {editMode && <span className="text-[10px] text-muted">セルをクリックで raise→call→fold 切替</span>}
             </div>
           )}
-          <RangeGrid range={activeRange} onCellClick={editMode && is6max && chartKind === 'rfi' ? handleCellClick : undefined} />
+          {chartKind === 'rfi' && !editMode && (
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs text-muted">色分け:</span>
+              <button
+                onClick={() => setColorMode('action')}
+                className={cn(
+                  'rounded-lg px-3 py-1 text-xs font-medium transition',
+                  colorMode === 'action' ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                )}
+              >
+                アクション
+              </button>
+              <button
+                onClick={() => setColorMode('tier')}
+                className={cn(
+                  'rounded-lg px-3 py-1 text-xs font-medium transition',
+                  colorMode === 'tier' ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                )}
+              >
+                ティア
+              </button>
+            </div>
+          )}
+          <RangeGrid
+            range={activeRange}
+            onCellClick={editMode && is6max && chartKind === 'rfi' ? handleCellClick : undefined}
+            cellColors={tierCellColors}
+          />
           <div className="mt-4">
-            <RangeLegend percent={pct} />
+            {colorMode === 'tier' && chartKind === 'rfi' ? (
+              <TierLegend activeMaxTier={activeMaxTier} />
+            ) : (
+              <RangeLegend percent={pct} />
+            )}
           </div>
         </Panel>
       </div>
@@ -386,11 +433,34 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
   );
 }
 
-function DrillView({ mode }: { mode: GameMode }) {
+function TierLegend({ activeMaxTier }: { activeMaxTier: number | undefined }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+      {TIER_CELL_COLORS.map((c, idx) => {
+        const tierNum = idx + 1;
+        const isActive = activeMaxTier !== undefined ? tierNum <= activeMaxTier : false;
+        return (
+          <span
+            key={tierNum}
+            className={cn('inline-flex items-center gap-1.5', !isActive && 'opacity-30')}
+          >
+            <span
+              className="h-3 w-3 rounded-sm"
+              style={{ background: c.bg, border: '1px solid rgba(255,255,255,0.1)' }}
+            />
+            tier{tierNum}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function DrillView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
   const recordRange = useProgress((s) => s.recordRange);
   const stats = useProgress((s) => s.range);
   const record = useAttempts((s) => s.record);
-  const [drill, setDrill] = useState<Drill>(() => dealDrill(mode));
+  const [drill, setDrill] = useState<Drill>(() => dealDrill(mode, seatCount));
   const [answer, setAnswer] = useState<Action | null>(null);
 
   const expected = primaryAction(drill.scenario.range[drill.hand]);
@@ -413,9 +483,11 @@ function DrillView({ mode }: { mode: GameMode }) {
   }
 
   function next() {
-    setDrill(dealDrill(mode));
+    setDrill(dealDrill(mode, seatCount));
     setAnswer(null);
   }
+
+  const drillSeats = seatCount !== 6 ? seatLabels(seatCount) : undefined;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
@@ -428,7 +500,11 @@ function DrillView({ mode }: { mode: GameMode }) {
         </div>
 
         <div className="my-8 flex flex-col items-center gap-4">
-          <PositionTable hero={drill.scenario.heroPos} className="max-w-xs" />
+          <PositionTable
+            hero={drill.scenario.heroPos}
+            seats={drillSeats}
+            className="max-w-xs"
+          />
           <div className="flex items-center gap-3">
             <PlayingCard card={drill.cards[0]} size="lg" />
             <PlayingCard card={drill.cards[1]} size="lg" />

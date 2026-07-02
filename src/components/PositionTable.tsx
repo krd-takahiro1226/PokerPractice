@@ -11,24 +11,53 @@ const SEAT_POS: Record<Position, { top: string; left: string }> = {
 };
 
 type PositionTableProps = {
-  hero: Position;
-  /** positions that are villains / already acted */
-  highlightVillain?: Position[];
+  hero: string;
+  seats?: string[];
+  highlightVillain?: string[];
   className?: string;
 };
 
-export function PositionTable({ hero, highlightVillain = [], className }: PositionTableProps) {
+function computeEllipsePos(seats: string[]): Record<string, { top: string; left: string }> {
+  const n = seats.length;
+  // Place seat 0 (first to act, e.g. UTG) at top-left area.
+  // startOffset chosen so BTN (seats[n-3]) lands at bottom-right.
+  const startOffset = -Math.PI * 0.7;
+  const result: Record<string, { top: string; left: string }> = {};
+  for (let i = 0; i < n; i++) {
+    const theta = startOffset + i * (2 * Math.PI / n);
+    const top = 50 - 42 * Math.cos(theta);
+    const left = 50 + 42 * Math.sin(theta);
+    result[seats[i]] = {
+      top: `${top.toFixed(1)}%`,
+      left: `${left.toFixed(1)}%`,
+    };
+  }
+  return result;
+}
+
+const DEFAULT_SEATS = [...POSITIONS];
+
+export function PositionTable({ hero, seats, highlightVillain = [], className }: PositionTableProps) {
+  const useDefault = !seats || seats.every((s, i) => POSITIONS[i] === s && seats.length === POSITIONS.length);
+  const displaySeats = seats ?? DEFAULT_SEATS;
+  const n = displaySeats.length;
+  const btnSeat = n === 2 ? 'SB' : displaySeats[n - 3] ?? 'BTN'; // HU では SB がボタン
+
+  const posMap: Record<string, { top: string; left: string }> = useDefault
+    ? (SEAT_POS as Record<string, { top: string; left: string }>)
+    : computeEllipsePos(displaySeats);
+
   return (
     <div className={cn('relative mx-auto aspect-[1.6/1] w-full max-w-sm', className)}>
       {/* felt */}
       <div className="absolute inset-[12%] rounded-[50%] border border-accent/20 bg-gradient-to-b from-emerald-900/30 to-emerald-950/40 shadow-[inset_0_0_40px_rgba(0,0,0,0.5)]" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-[10px] uppercase tracking-[0.3em] text-muted/60">6-max</span>
+        <span className="text-[10px] uppercase tracking-[0.3em] text-muted/60">{n}-max</span>
       </div>
-      {POSITIONS.map((pos) => {
+      {displaySeats.map((pos) => {
         const isHero = pos === hero;
         const isVillain = highlightVillain.includes(pos);
-        const { top, left } = SEAT_POS[pos];
+        const { top, left } = posMap[pos] ?? { top: '50%', left: '50%' };
         return (
           <div
             key={pos}
@@ -48,7 +77,7 @@ export function PositionTable({ hero, highlightVillain = [], className }: Positi
               <span>{pos}</span>
               {isHero && <span className="text-[8px] font-semibold tracking-wide">YOU</span>}
             </div>
-            {pos === 'BTN' && (
+            {pos === btnSeat && (
               <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold text-[8px] font-bold text-black">
                 D
               </span>

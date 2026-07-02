@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BarChart2, BookOpen, Brain, Coins, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
+import { BarChart2, BookMarked, BookOpen, Brain, Coins, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
 import { accuracy, useProgress } from '../store/progress';
 import { cn } from '../lib/cn';
 import { AuthButton } from './AuthButton';
@@ -21,6 +21,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/quiz', label: 'クイズ', icon: Brain },
       { to: '/stats', label: '統計', icon: BarChart2 },
       { to: '/review', label: '復習', icon: BookOpen },
+      { to: '/glossary', label: '用語集', icon: BookMarked },
     ],
   },
   {

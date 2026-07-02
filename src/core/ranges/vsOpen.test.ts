@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { getVsOpen, VSOPEN_SCENARIOS } from './vsOpen';
+import { getVsOpen, VSOPEN_SCENARIOS, getVsOpenScenariosForSeats } from './vsOpen';
 import { BB_CALL } from './yokosawa';
 import { primaryAction } from './types';
+import { seatLabels, playersBehind, maxTierForSeats } from './seats';
 
 describe('vsOpen — A1 受け入れテスト', () => {
   it('1. T9o バグ回帰: BB vs CO で T9o が call', () => {
@@ -63,5 +64,48 @@ describe('vsOpen — A1 受け入れテスト', () => {
     const found = VSOPEN_SCENARIOS.find((s) => s.heroPos === 'BB' && s.villainPos === 'CO');
     const got = getVsOpen('BB', 'CO');
     expect(got).toBe(found);
+  });
+});
+
+describe('getVsOpenScenariosForSeats', () => {
+  it('n=6: deep equal to VSOPEN_SCENARIOS (id, heroPos, villainPos, range)', () => {
+    const scenarios = getVsOpenScenariosForSeats(6);
+    expect(scenarios).toHaveLength(VSOPEN_SCENARIOS.length);
+    for (let i = 0; i < VSOPEN_SCENARIOS.length; i++) {
+      expect(scenarios[i].id).toBe(VSOPEN_SCENARIOS[i].id);
+      expect(scenarios[i].heroPos).toBe(VSOPEN_SCENARIOS[i].heroPos);
+      expect(scenarios[i].villainPos).toBe(VSOPEN_SCENARIOS[i].villainPos);
+      expect(scenarios[i].range).toEqual(VSOPEN_SCENARIOS[i].range);
+    }
+  });
+
+  it('n=9: BB vs BTN には BB_CALL のハンドが含まれる', () => {
+    const scenarios = getVsOpenScenariosForSeats(9);
+    const bbVsBtn = scenarios.find(s => s.heroPos === 'BB' && s.villainPos === 'BTN')!;
+    expect(bbVsBtn).toBeDefined();
+    // BB_CALL hand that is not in RAISE_SET
+    expect(primaryAction(bbVsBtn.range['A2o'])).toBe('call');
+  });
+
+  it('n=2 (HU): BB vs SB に BB_CALL 層が適用される（SB がボタン）', () => {
+    const scenarios = getVsOpenScenariosForSeats(2);
+    expect(scenarios).toHaveLength(1);
+    const huBB = scenarios[0];
+    expect(huBB.heroPos).toBe('BB');
+    expect(huBB.villainPos).toBe('SB');
+    expect(primaryAction(huBB.range['A2o'])).toBe('call');
+  });
+
+  it('n=9: 非BB hero の callMaxTier が opener の base tier と一致', () => {
+    const scenarios = getVsOpenScenariosForSeats(9);
+    // non-BB heroes should have callMaxTier === opener's base tier
+    const nonBBScenarios = scenarios.filter(s => s.heroPos !== 'BB');
+    for (const s of nonBBScenarios) {
+      const n9labels = seatLabels(9);
+      const openerIdx = n9labels.indexOf(s.villainPos);
+      const b = playersBehind(9, openerIdx);
+      const expectedCallMaxTier = maxTierForSeats(b);
+      expect(s.callMaxTier).toBe(expectedCallMaxTier);
+    }
   });
 });
