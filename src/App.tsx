@@ -12,6 +12,7 @@ import { Stats } from './pages/Stats';
 import { Review } from './pages/Review';
 import { Sessions } from './pages/Sessions';
 import { Glossary } from './pages/Glossary';
+import { Online } from './pages/Online';
 
 const router = createBrowserRouter([
   {
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: 'review', element: <Review /> },
       { path: 'glossary', element: <Glossary /> },
       { path: 'sessions', element: <Sessions /> },
+      { path: 'online', element: <Online /> },
       {
         path: 'versus',
         children: [

@@ -39,6 +39,8 @@ type SessionsState = {
   /** ハンド間の SessionState を localStorage に即時保存（同期・local のみ）。 */
   saveActiveSession: (recordId: string, state: SessionState) => void;
   clearActiveSession: () => void;
+  /** 進行中セッションを「途中終了」として確定し、活動中セッションをクリアする。 */
+  discardActiveSession: () => Promise<void>;
 };
 
 const MAX_SESSIONS = 50;
@@ -120,10 +122,29 @@ export const useSessions = create<SessionsState>()(
       },
 
       saveActiveSession: (recordId, state) => {
-        set({ activeSession: { recordId, state, savedAt: Date.now() } });
+        set((s) => ({
+          activeSession: { recordId, state, savedAt: Date.now() },
+          sessions: s.sessions.map((r) =>
+            r.id === recordId
+              ? { ...r, handsPlayed: state.handNumber, stackCurve: state.stackCurve }
+              : r,
+          ),
+        }));
       },
 
       clearActiveSession: () => {
+        set({ activeSession: null });
+      },
+
+      discardActiveSession: async () => {
+        const active = get().activeSession;
+        if (active) {
+          await get().finishSession(active.recordId, {
+            result: 'quit',
+            handsPlayed: active.state.handNumber,
+            stackCurve: active.state.stackCurve,
+          });
+        }
         set({ activeSession: null });
       },
     }),

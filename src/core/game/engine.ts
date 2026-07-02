@@ -24,45 +24,55 @@ export type LegalActions = {
 // ポジション配列: インデックス0=UTG相当（BTNの+1）、時計回り
 const POS_ORDER: Position[] = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
-/** 座席(id)をポジションにマップする。buttonSeat=BTN。 */
-function assignPositions(buttonSeat: number): Record<number, Position> {
+// button 相対ポジション配列（index0 = button から時計回り）。n=2..6 対応。
+// n=6 は現行 assignPositions と完全一致（既存挙動を変えない）。
+const POS_FROM_BTN_BY_N: Record<number, Position[]> = {
+  2: ['SB', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['BTN', 'SB', 'BB', 'CO'],
+  5: ['BTN', 'SB', 'BB', 'HJ', 'CO'],
+  6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+};
+
+/** 座席(id)をポジションにマップする。buttonSeat=BTN（n=2ではSB）。n=2..6 対応。 */
+function assignPositions(buttonSeat: number, n: number): Record<number, Position> {
+  const posFromBtn = POS_FROM_BTN_BY_N[n];
+  if (!posFromBtn) {
+    throw new Error(`Unsupported table size: ${n} (supported: 2-6)`);
+  }
   const result: Record<number, Position> = {};
-  // BTN からの相対距離でポジションを割り当て
-  // 6-max: BTN=BTN, BTN+1=SB, BTN+2=BB, BTN+3=UTG, BTN+4=HJ, BTN+5=CO
-  const posFromBtn: Position[] = ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'];
-  for (let i = 0; i < 6; i++) {
-    const seat = (buttonSeat + i) % 6;
+  for (let i = 0; i < n; i++) {
+    const seat = (buttonSeat + i) % n;
     result[seat] = posFromBtn[i];
   }
   return result;
 }
 
 /** ポジション順での次のプレイヤーidを返す（時計回り）。 */
-function nextSeat(current: number): number {
-  return (current + 1) % 6;
+function nextSeat(current: number, n: number): number {
+  return (current + 1) % n;
 }
 
 /** プリフロップのアクション順: UTG → HJ → CO → BTN → SB → BB（最初の入場者）。
- *  ブラインド投下後、最初のアクションはUTG（BBの+1）。 */
-function preflopFirstToAct(players: PlayerState[]): number | null {
+ *  ブラインド投下後、最初のアクションはBBの次（6-maxではUTG）。 */
+function preflopFirstToAct(players: PlayerState[], n: number): number | null {
   // BB の id を見つける
   const bb = players.find((p) => p.pos === 'BB');
   if (!bb) return null;
   // BB の次が最初のアクション
-  return nextActiveFrom(players, nextSeat(bb.id));
+  return nextActiveFrom(players, nextSeat(bb.id, n), n);
 }
 
-/** ポストフロップのアクション順: SBから時計回り（最初のactive）。 */
-function postflopFirstToAct(players: PlayerState[]): number | null {
-  const sb = players.find((p) => p.pos === 'SB');
-  if (!sb) return null;
-  return nextActiveFrom(players, sb.id);
+/** ポストフロップのアクション順: button の次（=SB相当）から時計回り（最初のactive）。
+ *  6-maxでは button+1=SB で従来と同値。HU(n=2)では button+1=BB となり正しい（HUはBBが先手）。 */
+function postflopFirstToAct(buttonSeat: number, players: PlayerState[], n: number): number | null {
+  return nextActiveFrom(players, (buttonSeat + 1) % n, n);
 }
 
 /** seat から時計回りで最初の active プレイヤーの id を返す（全folded/allin なら null）。 */
-function nextActiveFrom(players: PlayerState[], fromSeat: number): number | null {
-  for (let i = 0; i < 6; i++) {
-    const seat = (fromSeat + i) % 6;
+function nextActiveFrom(players: PlayerState[], fromSeat: number, n: number): number | null {
+  for (let i = 0; i < n; i++) {
+    const seat = (fromSeat + i) % n;
     const p = players[seat];
     if (p && p.status === 'active') return seat;
   }
@@ -71,8 +81,9 @@ function nextActiveFrom(players: PlayerState[], fromSeat: number): number | null
 
 /** 現ストリートでまだアクションが必要なプレイヤーを見つける。 */
 function nextToActInRound(state: GameState, afterSeat: number): number | null {
-  for (let i = 1; i <= 6; i++) {
-    const seat = (afterSeat + i) % 6;
+  const n = state.players.length;
+  for (let i = 1; i <= n; i++) {
+    const seat = (afterSeat + i) % n;
     const p = state.players[seat];
     if (!p || p.status !== 'active') continue;
     // まだアクションしていないか、currentBet に達していない
@@ -96,15 +107,18 @@ export function startHand(
 ): GameState {
   const rng = config.rng ?? Math.random;
 
+  // 席数 n: seatStacks 指定時はその長さ、省略時は 6（既存 6-max 単発/セッション互換）。
+  const n = seatStacks ? seatStacks.length : 6;
+
   const handNumber = prev ? prev.handNumber + 1 : 1;
   // BTN を毎ハンド +1 ローテーション
-  const buttonSeat = prev ? (prev.buttonSeat + 1) % 6 : 0;
+  const buttonSeat = prev ? (prev.buttonSeat + 1) % n : 0;
 
-  const posMap = assignPositions(buttonSeat);
+  const posMap = assignPositions(buttonSeat, n);
   const deck = shuffleDeck(rng);
 
   // seatStacks 指定時は各席の初期スタックに使う。省略時は config.startingStack。
-  let players: PlayerState[] = Array.from({ length: 6 }, (_, id) => ({
+  let players: PlayerState[] = Array.from({ length: n }, (_, id) => ({
     id,
     isHero: id === 0,
     pos: posMap[id],
@@ -116,10 +130,13 @@ export function startHand(
     hasActedThisStreet: false,
   }));
 
-  // ホールカードを配る（各2枚）
+  // ホールカードを配る（各2枚）。
+  // n=6 は既存の「UTGから配る」(buttonSeat+3起点)と完全一致させ、既存テスト/シード依存挙動を変えない。
+  // n!=6 は起点がどこでも配布の公平性に影響しないため SB 起点（buttonSeat+1）とする。
   let remaining = deck;
-  for (let i = 0; i < 6; i++) {
-    const seat = (buttonSeat + 3 + i) % 6; // UTGから配る
+  const dealFrom = n === 6 ? (buttonSeat + 3) % n : (buttonSeat + 1) % n;
+  for (let i = 0; i < n; i++) {
+    const seat = (dealFrom + i) % n;
     const [dealt, rest] = dealCards(remaining, 2);
     players[seat] = { ...players[seat], hole: [dealt[0], dealt[1]] };
     remaining = rest;
@@ -177,7 +194,7 @@ export function startHand(
     });
   }
 
-  const firstToAct = preflopFirstToAct(players);
+  const firstToAct = preflopFirstToAct(players, n);
 
   return {
     config,
@@ -487,7 +504,7 @@ export function advanceStreet(state: GameState): GameState {
     newDeck = rest;
   }
 
-  const firstToAct = postflopFirstToAct(players);
+  const firstToAct = postflopFirstToAct(state.buttonSeat, players, players.length);
 
   return {
     ...state,

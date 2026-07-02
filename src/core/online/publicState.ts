@@ -1,0 +1,36 @@
+import type { GameState } from '../game/types';
+import type { PublicGameState, PublicPlayer } from './types';
+
+export function toPublicState(
+  state: GameState,
+  seatUids: string[],
+  names: Record<string, string>,
+): PublicGameState {
+  const { deck: _deck, players, ...rest } = state;
+
+  const publicPlayers: PublicPlayer[] = players.map((player) => {
+    const shown = state.result?.shown.find((s) => s.playerId === player.id);
+    const uid = seatUids[player.id];
+
+    return {
+      ...player,
+      // engine's isHero is a leftover from single-player/local-vs-CPU sessions
+      // where seat 0 is always "the hero" for UI purposes. In online multiplayer,
+      // whichever seat happens to be seat 0 that hand (typically the button) has
+      // no special relationship to any particular viewer — every connected client
+      // has their own distinct "self". If we forwarded isHero as-is, every viewer
+      // would incorrectly see seat 0 highlighted as their own seat. The server
+      // neutralizes this here; the real "is this seat mine" flag is computed
+      // client-side later (Phase 2) by comparing PublicPlayer.uid === myUid.
+      isHero: false,
+      hole: shown ? shown.hole : null,
+      uid,
+      displayName: names[uid] ?? '',
+    };
+  });
+
+  return {
+    ...rest,
+    players: publicPlayers,
+  };
+}

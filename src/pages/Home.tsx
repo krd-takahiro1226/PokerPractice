@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Brain, Coins, Eye, Grid3x3, Percent, TrendingDown } from 'lucide-react';
+import { ArrowRight, Brain, Coins, Eye, Grid3x3, Percent, TrendingDown, Trophy, Users } from 'lucide-react';
 import { Panel } from '../components/Panel';
 import { ProgressRing } from '../components/ProgressRing';
 import { StatBadge } from '../components/StatBadge';
@@ -41,6 +41,20 @@ const FEATURES = [
     title: '相手目線レンジ',
     desc: '自分のアクションが相手にどんなレンジを見せているかを意識する訓練。',
     accent: 'text-danger',
+  },
+  {
+    to: '/sessions',
+    icon: Trophy,
+    title: '対戦成績',
+    desc: 'セッション履歴とチップ推移',
+    accent: 'text-amber-400',
+  },
+  {
+    to: '/online',
+    icon: Users,
+    title: 'オンライン対戦',
+    desc: '部屋コードで知り合いと 2〜6 人トーナメント対戦。',
+    accent: 'text-sky-400',
   },
 ] as const;
 

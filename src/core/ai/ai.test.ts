@@ -181,7 +181,8 @@ describe('チップ保存性テスト（CPU 6人自動対戦）', () => {
     expect(state!.result).not.toBeNull();
   });
 
-  it('50ハンド: 全難易度でクラッシュなく完走する', () => {
+  // 50ハンド×3難易度のストレステスト。スイート並列実行時は既定5sを超えることがある
+  it('50ハンド: 全難易度でクラッシュなく完走する', { timeout: 20_000 }, () => {
     const difficulties: GameConfig['difficulty'][] = ['easy', 'normal', 'hard'];
     for (const diff of difficulties) {
       let state: GameState | null = null;

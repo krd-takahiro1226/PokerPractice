@@ -412,3 +412,130 @@ describe('ante テスト（BB ante 方式）', () => {
     expect(state.result!.winners[0].amount).toBeCloseTo(5);
   });
 });
+
+// ─── n=2..5 一般化テスト（ONLINE-VERSUS.md §3.1/3.2/9.5） ─────────────────────
+
+const POS_FROM_BTN_BY_N: Record<number, string[]> = {
+  2: ['SB', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['BTN', 'SB', 'BB', 'CO'],
+  5: ['BTN', 'SB', 'BB', 'HJ', 'CO'],
+};
+
+function startHandN(n: number, buttonSeat = 0, seed = 42): GameState {
+  const seatStacks = Array(n).fill(100);
+  const config = freshConfig(seed);
+  // buttonSeat をずらしたい場合は button=0 の state から回転させて作る
+  let state = startHand(null, config, seatStacks);
+  for (let i = 0; i < buttonSeat; i++) {
+    state = startHand(state, freshConfig(seed + i + 1), seatStacks);
+  }
+  return state;
+}
+
+describe('n人一般化: ポジション割当', () => {
+  for (const n of [2, 3, 4, 5]) {
+    it(`n=${n}: button=0 のとき posFromBtn テーブル通りに割り当てられる`, () => {
+      const state = startHandN(n, 0);
+      const expected = POS_FROM_BTN_BY_N[n];
+      for (let i = 0; i < n; i++) {
+        expect(state.players[i].pos).toBe(expected[i]);
+      }
+      expect(state.players).toHaveLength(n);
+    });
+  }
+
+  it('n=6: 既存 posFromBtn と完全一致（回帰）', () => {
+    const state = startHandN(6, 0);
+    const expected = ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'];
+    for (let i = 0; i < 6; i++) {
+      expect(state.players[i].pos).toBe(expected[i]);
+    }
+  });
+
+  for (const n of [2, 3, 4, 5, 6]) {
+    it(`n=${n}: 全員にホールカードが重複なく配られる`, () => {
+      const state = startHandN(n, 0);
+      for (const p of state.players) {
+        expect(p.hole).not.toBeNull();
+      }
+      const allCards = state.players.flatMap((p) => p.hole!);
+      expect(new Set(allCards).size).toBe(n * 2);
+    });
+  }
+});
+
+describe('n人一般化: プリフロップ先手', () => {
+  for (const n of [2, 3, 4, 5, 6]) {
+    it(`n=${n}: プリフロップ先手はBBの次（button+2、n=2ではbuttonのSB自身の次=BB自身が最後）`, () => {
+      const state = startHandN(n, 0);
+      const bb = state.players.find((p) => p.pos === 'BB')!;
+      // BBの次のactiveプレイヤーが最初のtoAct（n=2ではSB=button自身がBBの次）
+      const expectedSeat = (bb.id + 1) % n;
+      expect(state.toAct).toBe(expectedSeat);
+    });
+  }
+});
+
+describe('n人一般化: ポストフロップ先手（HU修正の回帰確認）', () => {
+  it('HU (n=2): ポストフロップ先手はBB（buttonはSBだが後手になる）', () => {
+    let state = startHandN(2, 0);
+    const sb = state.players.find((p) => p.pos === 'SB')!;
+    const bb = state.players.find((p) => p.pos === 'BB')!;
+    expect(state.buttonSeat).toBe(sb.id); // HUはbutton=SB
+
+    // プリフロップ: SB(button)がcall、BBがcheckでフロップへ
+    state = applyAction(state, state.toAct!, { type: 'call' });
+    state = applyAction(state, state.toAct!, { type: 'check' });
+    state = advanceStreet(state);
+
+    expect(state.street).toBe('flop');
+    expect(state.toAct).toBe(bb.id); // HUポストフロップはBB先手
+  });
+
+  for (const n of [3, 4, 5, 6]) {
+    it(`n=${n}: ポストフロップ先手はSB（button+1）`, () => {
+      let state = startHandN(n, 0);
+      const sb = state.players.find((p) => p.pos === 'SB')!;
+
+      // 全員コールしてフロップへ（BBはcheck）
+      let guard = 0;
+      while (state.street === 'preflop' && guard < n + 2) {
+        const acting = state.toAct;
+        if (acting === null) break;
+        const legal = legalActions(state, acting);
+        state = applyAction(state, acting, legal.canCheck ? { type: 'check' } : { type: 'call' });
+        guard++;
+      }
+      if (state.toAct === null) state = advanceStreet(state);
+
+      expect(state.street).toBe('flop');
+      expect(state.toAct).toBe(sb.id);
+    });
+  }
+});
+
+describe('n人一般化: チップ保存性（フルハンド playthrough）', () => {
+  for (const n of [2, 3, 4, 5, 6]) {
+    it(`n=${n}: 全員check/callで完走してもチップ総量が不変`, () => {
+      const seatStacks = Array(n).fill(100);
+      let state = startHand(null, freshConfig(n * 11), seatStacks);
+      const startTotal = state.players.reduce((s, p) => s + p.stack + p.committedStreet, 0);
+
+      let guard = 0;
+      while (state.street !== 'showdown' && guard < 200) {
+        if (state.toAct !== null) {
+          const legal = legalActions(state, state.toAct);
+          state = applyAction(state, state.toAct, legal.canCheck ? { type: 'check' } : { type: 'call' });
+        } else {
+          state = advanceStreet(state);
+        }
+        guard++;
+      }
+
+      expect(state.street).toBe('showdown');
+      const finalTotal = state.players.reduce((s, p) => s + p.stack, 0);
+      expect(finalTotal).toBeCloseTo(startTotal, 5);
+    });
+  }
+});

@@ -26,6 +26,7 @@ import {
   type SessionFormat,
 } from '../core/game/session';
 import { LineChart } from '../components/charts/LineChart';
+import { SessionHistory } from '../components/SessionHistory';
 import { cn } from '../lib/cn';
 import { useDisplayPrefs } from '../store/displayPrefs';
 import { formatAmount } from '../lib/chips';
@@ -33,7 +34,7 @@ import type { ChipDisplay } from '../lib/chips';
 import type { GameMode } from '../core/ranges/mode';
 import type { GameConfig } from '../core/game/types';
 
-type Tab = 'game' | 'history';
+type Tab = 'game' | 'history' | 'sessions';
 type VersusMode = 'single' | 'session';
 
 // Verdict styling
@@ -48,7 +49,13 @@ const VERDICT_STYLE: Record<string, { bg: string; text: string; label: string }>
 
 export function Versus() {
   const [tab, setTab] = useState<Tab>('game');
-  const [versusMode, setVersusMode] = useState<VersusMode>('single');
+  const [versusMode, setVersusMode] = useState<VersusMode>(() => {
+    const active = useSessions.getState().activeSession;
+    if (active && active.state.status === 'active' && canContinue(active.state)) {
+      return 'session';
+    }
+    return 'single';
+  });
   const params = useParams();
   const navigate = useNavigate();
 
@@ -68,7 +75,7 @@ export function Versus() {
       {/* Tabs */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-xl border border-border bg-surface-2/50 p-1">
-          {(['game', 'history'] as Tab[]).map((t) => (
+          {(['game', 'history', 'sessions'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -77,7 +84,7 @@ export function Versus() {
                 tab === t ? 'bg-accent text-[#04221a]' : 'text-muted hover:text-text',
               )}
             >
-              {t === 'game' ? '対戦' : '履歴'}
+              {t === 'game' ? '対戦' : t === 'history' ? '履歴' : '成績'}
             </button>
           ))}
         </div>
@@ -111,6 +118,9 @@ export function Versus() {
       </div>
       <div className={cn(tab !== 'history' && 'hidden')}>
         <HistoryTab />
+      </div>
+      <div className={cn(tab !== 'sessions' && 'hidden')}>
+        <SessionHistory />
       </div>
     </div>
   );
@@ -333,9 +343,9 @@ const SESSION_RESULT_LABEL: Record<string, string> = {
 
 function SessionTab() {
   const ctrl = useVersusSession();
-  const { session, game, legal, isHeroTurn, heroAct, nextHand, quit, start } = ctrl;
+  const { session, game, legal, isHeroTurn, heroAct, nextHand, quit, start, pause } = ctrl;
   const [started, setStarted] = useState(false);
-  const { activeSession, clearActiveSession } = useSessions();
+  const { activeSession, discardActiveSession } = useSessions();
   const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
 
   // フォーム状態
@@ -404,7 +414,13 @@ function SessionTab() {
               >
                 再開する
               </Button>
-              <Button size="sm" variant="ghost" onClick={clearActiveSession}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  discardActiveSession().catch(() => {});
+                }}
+              >
                 破棄
               </Button>
             </div>
@@ -553,10 +569,23 @@ function SessionTab() {
         <span>スタック: {formatAmount(session.seatStacks[0], chipDisplay)}</span>
         <ChipDisplayToggle />
         <button
-          onClick={quit}
-          className="ml-auto rounded-lg border border-rose-500/30 px-2 py-1 text-rose-400 hover:bg-rose-500/10"
+          onClick={() => {
+            pause();
+            setStarted(false);
+          }}
+          className="ml-auto rounded-lg border border-border px-2 py-1 text-muted hover:bg-surface-2"
         >
-          セッション終了
+          中断（あとで再開）
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm('セッションを終了して成績を確定しますか？このセッションは再開できなくなります。')) {
+              quit();
+            }
+          }}
+          className="rounded-lg border border-rose-500/30 px-2 py-1 text-rose-400 hover:bg-rose-500/10"
+        >
+          終了（成績を確定）
         </button>
       </div>
 

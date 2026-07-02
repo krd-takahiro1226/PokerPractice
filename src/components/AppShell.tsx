@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BarChart2, BookMarked, BookOpen, Brain, Coins, Eye, Grid3x3, Home, Percent, Swords, Target, Trophy, type LucideIcon } from 'lucide-react';
+import { BarChart2, BookMarked, BookOpen, Brain, Coins, Eye, Grid3x3, Home, Percent, Swords, Target, Trophy, Users, type LucideIcon } from 'lucide-react';
 import { accuracy, useProgress } from '../store/progress';
 import { cn } from '../lib/cn';
 import { AuthButton } from './AuthButton';
@@ -29,6 +29,7 @@ const NAV_SECTIONS: NavSection[] = [
     section: 'プレイ',
     items: [
       { to: '/versus', label: '対戦', icon: Swords },
+      { to: '/online', label: 'オンライン対戦', icon: Users },
       { to: '/sessions', label: '成績', icon: Trophy },
     ],
   },
@@ -46,15 +47,9 @@ const MOBILE_NAV: NavItem[] = [
 function Logo() {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="relative h-8 w-8">
-        <div className="absolute inset-0 rotate-[-8deg] rounded-md bg-white/90" />
-        <div className="absolute inset-0 rotate-[8deg] rounded-md bg-gradient-to-br from-accent-bright to-accent" />
-        <div className="absolute inset-0 flex items-center justify-center text-sm font-black text-[#04221a]">
-          ♠
-        </div>
-      </div>
+      <img src="/icons/icon-192.png" alt="PokerDrill" className="h-8 w-8 rounded-md" />
       <div className="leading-tight">
-        <div className="text-sm font-bold tracking-tight">Poker Trainer</div>
+        <div className="text-sm font-bold tracking-tight">PokerDrill</div>
         <div className="text-[10px] uppercase tracking-widest text-muted">NLH 6-max</div>
       </div>
     </div>

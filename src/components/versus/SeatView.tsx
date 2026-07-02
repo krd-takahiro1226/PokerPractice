@@ -9,6 +9,8 @@ type SeatViewProps = {
   isToAct: boolean;
   showCards?: boolean;
   className?: string;
+  /** オンライン対戦用。未指定時は既存の pos/YOU 表示のみ（vs CPU 画面のピクセル互換を維持）。 */
+  displayName?: string;
 };
 
 const STATUS_LABEL: Record<PlayerState['status'], string> = {
@@ -17,7 +19,7 @@ const STATUS_LABEL: Record<PlayerState['status'], string> = {
   allin: 'ALL-IN',
 };
 
-export function SeatView({ player, isToAct, showCards = false, className }: SeatViewProps) {
+export function SeatView({ player, isToAct, showCards = false, className, displayName }: SeatViewProps) {
   const isFolded = player.status === 'folded';
   const isAllin = player.status === 'allin';
   const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
@@ -42,6 +44,9 @@ export function SeatView({ player, isToAct, showCards = false, className }: Seat
         {player.pos}
         {player.isHero && <span className="ml-1 text-accent-bright">YOU</span>}
       </div>
+      {displayName != null && (
+        <div className="max-w-[64px] truncate text-[10px] text-muted">{displayName}</div>
+      )}
 
       {/* Cards */}
       {player.hole ? (

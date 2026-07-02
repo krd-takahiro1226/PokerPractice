@@ -31,6 +31,7 @@ export type VersusSessionController = {
   heroAct: (action: PlayerAction) => void;
   nextHand: () => void;
   quit: () => void;
+  pause: () => void;
   start: (config: SessionConfig) => void;
   resume: (saved: ActiveSession) => void;
   sessionId: string | null;
@@ -257,6 +258,15 @@ export function useVersusSession(): VersusSessionController {
     clearActiveSession();
   }, [finishSession, clearActiveSession]);
 
+  const pause = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    processingRef.current = false;
+    setGame(null);
+  }, []);
+
   const heroAct = useCallback((action: PlayerAction) => {
     setGame((prev) => {
       if (prev === null || prev.toAct !== 0) return prev;
@@ -305,6 +315,7 @@ export function useVersusSession(): VersusSessionController {
     heroAct,
     nextHand,
     quit,
+    pause,
     start,
     resume,
     sessionId,

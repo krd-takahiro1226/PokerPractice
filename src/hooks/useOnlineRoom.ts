@@ -1,0 +1,460 @@
+// The single hook a later `pages/Online.tsx` will use to drive the online-versus room:
+// room lifecycle (create/join/leave/start), realtime subscription (§5.4 of
+// docs/ONLINE-VERSUS.md), per-action wire calls, and UI-facing derived values
+// (isMyTurn/legal/deadlineMs/...). Server-authoritative: this hook never runs game logic,
+// it only calls the online-room edge function and mirrors what the server publishes.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../store/auth';
+import {
+  useOnlineStore,
+  getStoredRoomCode,
+  storeRoomCode,
+  type RoomPlayerRow,
+  type RoomPhase,
+  type RoomStatus,
+} from '../store/online';
+import {
+  OnlineClientError,
+  createRoom as apiCreateRoom,
+  joinRoom as apiJoinRoom,
+  leaveRoom as apiLeaveRoom,
+  startGame as apiStartGame,
+  playerAction as apiPlayerAction,
+  nextHand as apiNextHand,
+  claimTimeout as apiClaimTimeout,
+  heartbeat as apiHeartbeat,
+} from '../lib/onlineClient';
+// Type-only imports from core are always fine; `legalActions` and `canContinue` are the two
+// pure core functions this hook is explicitly permitted to call (see task brief).
+import type { GameState, PlayerActionType } from '../core/game/types';
+import type { Card } from '../core/cards';
+import type { PublicGameState } from '../core/online/types';
+import type { TournamentConfigInput, TournamentState } from '../core/online/tournament';
+import { legalActions, type LegalActions } from '../core/game/engine';
+import { canContinue } from '../core/online/tournament';
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const NEXT_HAND_DELAY_MS = 4_000;
+const REACTION_TTL_MS = 3_000;
+
+type RoomRow = {
+  id: string;
+  code: string;
+  host_uid: string;
+  status: RoomStatus;
+  config: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+type RoomStateRow = {
+  room_id: string;
+  version: number;
+  hand_number: number;
+  phase: RoomPhase;
+  public: PublicGameState | Record<string, never>;
+  tournament: TournamentState | Record<string, never>;
+  action_deadline: string | null;
+  updated_at: string;
+};
+
+type RoomHoleCardRow = {
+  room_id: string;
+  hand_number: number;
+  uid: string;
+  hole: [Card, Card];
+  created_at: string;
+};
+
+/** Applies a `room_states` row (from initial SELECT or a postgres_changes event) to the store. */
+function applyStateRow(row: RoomStateRow): void {
+  const store = useOnlineStore.getState();
+  const pub = row.public && Object.keys(row.public).length > 0 ? (row.public as PublicGameState) : null;
+  const trn =
+    row.tournament && Object.keys(row.tournament).length > 0 ? (row.tournament as TournamentState) : null;
+  // 新しいハンドが始まったら前ハンドの自分の hole を必ず落とす。落とさないと、hole INSERT
+  // イベントの取りこぼし時に「前のハンドのカード」を自分の手として表示し続けてしまう。
+  if (row.hand_number !== store.handNumber) store.setMyHole(null);
+  store.setPublicState(pub);
+  store.setTournament(trn);
+  store.setVersion(row.version);
+  store.setPhase(row.phase);
+  store.setActionDeadline(row.action_deadline);
+  store.setHandNumber(row.hand_number);
+}
+
+async function refetchPlayers(roomId: string): Promise<void> {
+  if (!supabase) return;
+  const { data } = await supabase
+    .from('room_players')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('seat')
+    .returns<RoomPlayerRow[]>();
+  if (data) useOnlineStore.getState().setPlayers(data);
+}
+
+export function useOnlineRoom() {
+  const store = useOnlineStore();
+  const [storedRoomCode] = useState<string | null>(() => getStoredRoomCode());
+  const [deadlineMs, setDeadlineMs] = useState<number | null>(null);
+
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nextHandTimerRef = useRef<{ hand: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const timeoutClaimKeyRef = useRef<string | null>(null);
+
+  const disconnect = useCallback(() => {
+    if (channelRef.current && supabase) {
+      supabase.removeChannel(channelRef.current);
+    }
+    channelRef.current = null;
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    if (nextHandTimerRef.current) {
+      clearTimeout(nextHandTimerRef.current.timer);
+      nextHandTimerRef.current = null;
+    }
+    timeoutClaimKeyRef.current = null;
+  }, []);
+
+  // Subscribes to the room's realtime channel, then seeds the store from one-shot SELECTs
+  // (postgres_changes only delivers *future* row changes, per docs/ONLINE-VERSUS.md §5.4).
+  const enterRoom = useCallback(async (roomId: string) => {
+    if (!supabase) return;
+    useOnlineStore.getState().setConnectionStatus('connecting');
+    useOnlineStore.getState().setRoomId(roomId);
+
+    const channel = supabase
+      .channel(`room:${roomId}`)
+      .on<RoomStateRow>(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'room_states', filter: `room_id=eq.${roomId}` },
+        (payload: RealtimePostgresChangesPayload<RoomStateRow>) => {
+          const row = payload.new as RoomStateRow;
+          if (row && typeof row.version === 'number') applyStateRow(row);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'room_players', filter: `room_id=eq.${roomId}` },
+        () => {
+          void refetchPlayers(roomId);
+        },
+      )
+      .on<RoomHoleCardRow>(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'room_hole_cards', filter: `room_id=eq.${roomId}` },
+        (payload: RealtimePostgresChangesPayload<RoomHoleCardRow>) => {
+          const row = payload.new as RoomHoleCardRow;
+          const s = useOnlineStore.getState();
+          // RLS already restricts delivery to our own rows; the uid check is defense-in-depth.
+          if (row && row.uid === s.myUid && row.hand_number === s.handNumber) {
+            s.setMyHole(row.hole);
+          }
+        },
+      )
+      .on('broadcast', { event: 'reaction' }, (payload) => {
+        const p = payload.payload as { uid: string; emoji: string };
+        const id = crypto.randomUUID();
+        useOnlineStore.getState().addReaction({ id, uid: p.uid, emoji: p.emoji });
+        setTimeout(() => useOnlineStore.getState().clearReaction(id), REACTION_TTL_MS);
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          useOnlineStore.getState().setConnectionStatus('connected');
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          useOnlineStore.getState().setConnectionStatus('disconnected');
+        }
+      });
+
+    channelRef.current = channel;
+
+    const [{ data: roomRow }, { data: stateRow }, { data: playersRows }] = await Promise.all([
+      supabase.from('rooms').select('*').eq('id', roomId).maybeSingle<RoomRow>(),
+      supabase.from('room_states').select('*').eq('room_id', roomId).maybeSingle<RoomStateRow>(),
+      supabase.from('room_players').select('*').eq('room_id', roomId).order('seat').returns<RoomPlayerRow[]>(),
+    ]);
+
+    if (roomRow) {
+      useOnlineStore.getState().setRoomStatus(roomRow.status);
+      useOnlineStore.getState().setHostUid(roomRow.host_uid);
+      useOnlineStore.getState().setRoomCode(roomRow.code);
+    }
+    if (stateRow) applyStateRow(stateRow);
+    if (playersRows) useOnlineStore.getState().setPlayers(playersRows);
+
+    const handNumber = stateRow?.hand_number ?? 0;
+    if (handNumber > 0) {
+      const { data: holeRows } = await supabase
+        .from('room_hole_cards')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('hand_number', handNumber)
+        .returns<RoomHoleCardRow[]>();
+      useOnlineStore.getState().setMyHole(holeRows?.[0]?.hole ?? null);
+    }
+  }, []);
+
+  const createRoom = useCallback(
+    async (config: TournamentConfigInput, displayName: string) => {
+      const uid = useAuth.getState().userId;
+      const { roomId, code } = await apiCreateRoom(config, displayName);
+      useOnlineStore.getState().setMyUid(uid);
+      useOnlineStore.getState().setHostUid(uid);
+      useOnlineStore.getState().setRoomCode(code);
+      storeRoomCode(code);
+      await enterRoom(roomId);
+      return { roomId, code };
+    },
+    [enterRoom],
+  );
+
+  const joinRoom = useCallback(
+    async (code: string, displayName: string) => {
+      const uid = useAuth.getState().userId;
+      const { roomId, seat } = await apiJoinRoom(code, displayName);
+      useOnlineStore.getState().setMyUid(uid);
+      useOnlineStore.getState().setRoomCode(code);
+      storeRoomCode(code);
+      await enterRoom(roomId);
+      return { roomId, seat };
+    },
+    [enterRoom],
+  );
+
+  const leaveRoom = useCallback(async () => {
+    const roomId = useOnlineStore.getState().roomId;
+    disconnect();
+    storeRoomCode(null);
+    useOnlineStore.getState().reset();
+    if (roomId) {
+      try {
+        await apiLeaveRoom(roomId);
+      } catch {
+        // best-effort: we've already left locally regardless of server ack.
+      }
+    }
+  }, [disconnect]);
+
+  const startGame = useCallback(async () => {
+    const roomId = useOnlineStore.getState().roomId;
+    if (!roomId) throw new OnlineClientError('room_not_found', 'not in a room');
+    const { version } = await apiStartGame(roomId);
+    useOnlineStore.getState().setVersion(version);
+  }, []);
+
+  const act = useCallback(async (move: { type: PlayerActionType; amount?: number }) => {
+    const s = useOnlineStore.getState();
+    if (!s.roomId) throw new OnlineClientError('room_not_found', 'not in a room');
+    // On 'stale' failures we deliberately do not retry here; the next realtime update
+    // self-corrects the store and the caller can decide whether to surface an error.
+    const { version } = await apiPlayerAction(s.roomId, s.version, move);
+    useOnlineStore.getState().setVersion(version);
+  }, []);
+
+  const sendReaction = useCallback((emoji: string) => {
+    const uid = useAuth.getState().userId;
+    if (!channelRef.current || !uid) return;
+    channelRef.current.send({ type: 'broadcast', event: 'reaction', payload: { uid, emoji } });
+  }, []);
+
+  const claimTimeout = useCallback(async (targetUid: string) => {
+    const s = useOnlineStore.getState();
+    if (!s.roomId) return;
+    try {
+      const { version } = await apiClaimTimeout(s.roomId, s.version, targetUid);
+      useOnlineStore.getState().setVersion(version);
+    } catch {
+      // ignore: another client's claim probably already succeeded, or the target already acted.
+    }
+  }, []);
+
+  // Heartbeat: keep room_players.last_seen fresh while we're in a room.
+  const roomId = store.roomId;
+  useEffect(() => {
+    if (!roomId) return;
+    const interval = setInterval(() => {
+      apiHeartbeat(roomId).catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
+    heartbeatIntervalRef.current = interval;
+    return () => {
+      clearInterval(interval);
+      heartbeatIntervalRef.current = null;
+    };
+  }, [roomId]);
+
+  // Disconnect + reset on unmount (mirrors leaveRoom's cleanup).
+  useEffect(() => {
+    return () => {
+      disconnect();
+      useOnlineStore.getState().reset();
+    };
+  }, [disconnect]);
+
+  // Derived values -----------------------------------------------------------------
+
+  const publicState = store.publicState;
+  const myUid = store.myUid;
+
+  // `publicState.players[i].uid` is the source of truth for "who is seat i this hand" — the
+  // per-hand engine seat order (button-relative, from tournament.setupHand) is unrelated to the
+  // stable `room_players.seat` column, so isMyTurn/mySeatIndex must index into publicState.players.
+  const isMyTurn = useMemo(() => {
+    if (!publicState || publicState.toAct == null) return false;
+    return publicState.players[publicState.toAct]?.uid === myUid;
+  }, [publicState, myUid]);
+
+  const mySeatIndex = useMemo(() => {
+    if (!publicState) return null;
+    const idx = publicState.players.findIndex((p) => p.uid === myUid);
+    return idx >= 0 ? idx : null;
+  }, [publicState, myUid]);
+
+  const legal: LegalActions | null = useMemo(() => {
+    if (!isMyTurn || mySeatIndex === null || !publicState) return null;
+    const players = publicState.players.map((p, i) => (i === mySeatIndex ? { ...p, hole: store.myHole } : p));
+    // legalActions only reads stack/committedStreet/currentBet/minRaise/config.bb off GameState,
+    // all of which PublicGameState carries verbatim (only `deck` and other seats' `hole` are
+    // omitted, neither of which legalActions touches) — so this cast is safe.
+    const gameStateLike = { ...publicState, players } as unknown as GameState;
+    return legalActions(gameStateLike, mySeatIndex);
+  }, [isMyTurn, mySeatIndex, publicState, store.myHole]);
+
+  const isHost = store.hostUid !== null && store.hostUid === myUid;
+
+  // winnerUids: uid(s) of the just-finished hand's winner(s) (split pots -> multiple), derived
+  // from PublicGameState.result.winners (HandResult['winners'] = {playerId, amount}[], where
+  // playerId indexes publicState.players). Empty when no hand has concluded yet.
+  const winnerUids = useMemo(() => {
+    if (!publicState?.result) return [];
+    return publicState.result.winners
+      .map((w) => publicState.players[w.playerId]?.uid)
+      .filter((u): u is string => Boolean(u));
+  }, [publicState]);
+
+  const phase = store.phase;
+  const actionDeadline = store.actionDeadline;
+
+  // myHole 安全網: 通常は room_hole_cards の INSERT イベントで届くが、サーバーは room_states
+  // 更新の「後」に hole を insert するため、状態更新直後の SELECT は空のことがある（レース）。
+  // また Realtime イベント自体の取りこぼしにも備え、hole が未着の間だけ短いリトライで再取得する。
+  const myHoleMissing = store.myHole === null;
+  useEffect(() => {
+    const handNumber = useOnlineStore.getState().handNumber;
+    if (!roomId || handNumber === 0 || phase !== 'in_hand' || !myHoleMissing) return;
+    let cancelled = false;
+    const fetchHole = async (attempt: number) => {
+      if (cancelled || !supabase) return;
+      const { data } = await supabase
+        .from('room_hole_cards')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('hand_number', handNumber)
+        .returns<RoomHoleCardRow[]>();
+      if (cancelled || useOnlineStore.getState().handNumber !== handNumber) return;
+      const hole = data?.[0]?.hole ?? null;
+      if (hole) {
+        useOnlineStore.getState().setMyHole(hole);
+      } else if (attempt < 3) {
+        // バスト済み等でこのハンドに hole が無い場合もここに来るが、3回で打ち切るため無害。
+        setTimeout(() => void fetchHole(attempt + 1), 1200);
+      }
+    };
+    void fetchHole(0);
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, phase, myHoleMissing, store.handNumber]);
+
+  // Deadline countdown: local UI-tick-rate state, recomputed every 250ms while in a hand.
+  useEffect(() => {
+    if (phase !== 'in_hand' || !actionDeadline) {
+      setDeadlineMs(null);
+      return;
+    }
+    const deadlineTime = new Date(actionDeadline).getTime();
+    const tick = () => setDeadlineMs(deadlineTime - Date.now());
+    tick();
+    const interval = setInterval(tick, 250);
+    return () => clearInterval(interval);
+  }, [phase, actionDeadline]);
+
+  // Auto next_hand: any client may drive this — the server makes it idempotent (first call
+  // wins). Dependency list intentionally uses primitives (not the `tournament` object) so a
+  // realtime tick that doesn't actually change phase/handNumber/canContinue never resets the timer.
+  const handNumber = store.handNumber;
+  const canContinueNow = store.tournament ? canContinue(store.tournament) : false;
+  useEffect(() => {
+    if (phase !== 'hand_over' || !canContinueNow || !roomId) return;
+    if (nextHandTimerRef.current?.hand === handNumber) return;
+    const timer = setTimeout(() => {
+      apiNextHand(roomId).catch((e) => {
+        if (e instanceof OnlineClientError && (e.code === 'stale' || e.code === 'illegal_action')) return;
+        // other errors: swallow too, per spec — a later UI layer can surface a connection issue.
+      });
+    }, NEXT_HAND_DELAY_MS);
+    nextHandTimerRef.current = { hand: handNumber, timer };
+    return () => {
+      clearTimeout(timer);
+      if (nextHandTimerRef.current?.timer === timer) nextHandTimerRef.current = null;
+    };
+  }, [phase, handNumber, canContinueNow, roomId]);
+
+  // claim_timeout: fire once per (handNumber, actionDeadline) when the deadline lapses and it's
+  // not our turn (if it IS our turn, we're the one late — do nothing special, just let the UI
+  // show the countdown; another player will claim it).
+  useEffect(() => {
+    if (deadlineMs === null || deadlineMs > 0 || isMyTurn) return;
+    const s = useOnlineStore.getState();
+    if (!s.roomId || !s.publicState || s.publicState.toAct == null) return;
+    const key = `${s.handNumber}:${s.actionDeadline ?? ''}`;
+    if (timeoutClaimKeyRef.current === key) return;
+    timeoutClaimKeyRef.current = key;
+    const targetUid = s.publicState.players[s.publicState.toAct]?.uid;
+    if (!targetUid) return;
+    void claimTimeout(targetUid);
+  }, [deadlineMs, isMyTurn, claimTimeout]);
+
+  return {
+    // store snapshot
+    roomId: store.roomId,
+    roomCode: store.roomCode,
+    roomStatus: store.roomStatus,
+    hostUid: store.hostUid,
+    players: store.players,
+    publicState: store.publicState,
+    tournament: store.tournament,
+    phase: store.phase,
+    version: store.version,
+    actionDeadline: store.actionDeadline,
+    handNumber: store.handNumber,
+    myHole: store.myHole,
+    myUid: store.myUid,
+    connectionStatus: store.connectionStatus,
+    reactions: store.reactions,
+    clearReaction: store.clearReaction,
+    storedRoomCode,
+
+    // actions
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    startGame,
+    act,
+    sendReaction,
+    claimTimeout,
+
+    // derived
+    isMyTurn,
+    mySeatIndex,
+    legal,
+    isHost,
+    deadlineMs,
+    winnerUids,
+  };
+}

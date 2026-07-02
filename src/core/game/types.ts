@@ -14,7 +14,7 @@ export type PlayerAction = {
 };
 
 export type PlayerState = {
-  id: number;                 // 0..5。0 = ヒーロー
+  id: number;                 // 0..n-1（既定n=6）。ローカル対戦では0 = ヒーロー
   isHero: boolean;
   pos: Position;
   stack: number;              // 残りスタック(bb)
@@ -41,7 +41,7 @@ export type GameState = {
   config: GameConfig;
   handNumber: number;
   buttonSeat: number;         // BTNのplayer.id
-  players: PlayerState[];     // 長さ6固定
+  players: PlayerState[];     // 長さ2..6（既定6。online tournament は着席人数に応じて可変）
   board: Card[];              // 0,3,4,5枚
   deck: Card[];               // 未配のデッキ（残り）
   street: Street;
