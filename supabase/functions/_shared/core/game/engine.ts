@@ -558,14 +558,33 @@ export function resolveShowdown(state: GameState): GameState {
 
   // 現ストリートの未確定拠出もポットに加算
   const streetTotal = state.players.reduce((s, p) => s + p.committedStreet, 0);
-  const pot = state.pot + streetTotal;
+  let pot = state.pot + streetTotal;
 
   // players の committedTotal を最終状態に反映
-  const players = state.players.map((p) => ({
+  let players = state.players.map((p) => ({
     ...p,
     committedTotal: p.committedTotal, // already updated by applyAction
     committedStreet: 0,
   }));
+
+  // uncalled bet の返還: 全プレイヤー(fold済み含む)の committedTotal を比較し、最大拠出額が
+  // 2番目の拠出額を上回る分は「誰にもコールされなかった」超過分としてポットから除外し、
+  // 拠出者本人へそのまま返す。これをしないと buildPots が eligible=拠出者1人だけのポット層を
+  // 作ってしまい、その層が distributePots 経由で「勝ち分」として result.winners に載ってしまう
+  // （敗者でも uncalled 分の返還だけで winners に名前が出るバグ）。
+  const byCommitted = [...players].sort((a, b) => b.committedTotal - a.committedTotal);
+  const maxCommitted = byCommitted[0]?.committedTotal ?? 0;
+  const secondCommitted = byCommitted[1]?.committedTotal ?? 0;
+  const refund = maxCommitted - secondCommitted;
+  if (refund > 0) {
+    const topId = byCommitted[0].id;
+    players = players.map((p) =>
+      p.id === topId
+        ? { ...p, stack: p.stack + refund, committedTotal: p.committedTotal - refund }
+        : p,
+    );
+    pot -= refund;
+  }
 
   // ボードを完成させる（runOut 経由でなく直接呼ばれた場合）
   let board = [...state.board];

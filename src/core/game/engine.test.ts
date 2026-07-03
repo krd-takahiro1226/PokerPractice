@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { startHand, legalActions, applyAction, isBettingRoundComplete, advanceStreet, resolveShowdown } from './engine';
-import type { GameConfig, GameState } from './types';
+import type { GameConfig, GameState, PlayerState } from './types';
+import type { Card } from '../cards';
 
 /** 決定論的な RNG: シードから lcg 生成 */
 function makeRng(seed: number): () => number {
@@ -105,9 +106,12 @@ describe('applyAction - fold', () => {
     expect(state.street).toBe('showdown');
     expect(state.result).not.toBeNull();
     expect(state.result!.winners[0].playerId).toBe(utg.id);
-    // UTGのスタックはstartingStack - 2.5 + pot
-    const potAmount = 0.5 + 1 + 2.5; // SB + BB + UTG raise
-    expect(state.result!.winners[0].amount).toBeCloseTo(potAmount);
+    // UTGの2.5オープンはBBの1.0までしかコールされていない（他は0でfold）ので、
+    // 差分1.5(=2.5-1.0)は「誰にもコールされなかった」返還としてスタックへ直接戻り、
+    // winners.amount には競われた分(=pot-refund=4.0-1.5=2.5)だけが載る（新仕様）。
+    expect(state.result!.winners[0].amount).toBeCloseTo(2.5);
+    // 最終スタックは常に保存則を満たす: refund+pot の合計はどちらの計算でも同じ
+    expect(state.players[utg.id].stack).toBeCloseTo(100 - 2.5 + (0.5 + 1 + 2.5));
   });
 });
 
@@ -408,8 +412,13 @@ describe('ante テスト（BB ante 方式）', () => {
     expect(state.street).toBe('showdown');
     expect(state.result).not.toBeNull();
     expect(state.result!.winners[0].playerId).toBe(utg.id);
-    // ポット = ante(1) + SB(0.5) + BB(1) + UTG raise(2.5)
-    expect(state.result!.winners[0].amount).toBeCloseTo(5);
+    // ポット総額 = ante(1) + SB(0.5) + BB(1) + UTG raise(2.5) = 5.0。
+    // BBのcommittedTotal(bb+ante=2.0)までしかコールされていないため、UTGの拠出のうち
+    // 2.0を超える0.5は誰にもコールされなかった返還としてスタックへ直接戻り、
+    // winners.amount には競われた分(=5.0-0.5=4.5)だけが載る（新仕様）。
+    expect(state.result!.winners[0].amount).toBeCloseTo(4.5);
+    // 最終スタックは常に保存則を満たす: refund+pot の合計は変わらない
+    expect(state.players[utg.id].stack).toBeCloseTo(100 - 2.5 + 5);
   });
 });
 
@@ -538,4 +547,139 @@ describe('n人一般化: チップ保存性（フルハンド playthrough）', (
       expect(finalTotal).toBeCloseTo(startTotal, 5);
     });
   }
+});
+
+// ─── uncalled bet の返還（resolveShowdown） ─────────────────────────────────
+// resolveShowdown が直接受け取れる粒度で GameState を組み立て、ボード完成・カード配布に
+// deck の RNG を使わせず、勝敗を確定的にする（showdown.test.ts の makePlayer 流儀を踏襲）。
+
+function makeSdPlayer(
+  id: number,
+  hole: [Card, Card],
+  committedTotal: number,
+  stack: number,
+  status: PlayerState['status'] = 'active',
+): PlayerState {
+  return {
+    id,
+    isHero: id === 0,
+    pos: 'UTG',
+    stack,
+    hole,
+    committedTotal,
+    committedStreet: 0,
+    status,
+    hasActedThisStreet: false,
+  };
+}
+
+function makeShowdownState(players: PlayerState[], board: Card[], pot: number): GameState {
+  return {
+    config: freshConfig(),
+    handNumber: 1,
+    buttonSeat: 0,
+    players,
+    board,
+    deck: [],
+    street: 'river',
+    pot,
+    currentBet: 0,
+    minRaise: 1,
+    toAct: null,
+    lastAggressor: null,
+    log: [],
+    result: null,
+  };
+}
+
+describe('resolveShowdown - uncalled bet の返還', () => {
+  it('HU: 短いスタックのコールに対し、超過分は返還され winners に敗者は載らない', () => {
+    // A(id0) stack100 all-in、B(id1) stack60 all-in call。Bが勝つボード。
+    const board: Card[] = ['2c', '7d', 'Kd', '4s', '9h'];
+    const players = [
+      makeSdPlayer(0, ['7c', '2h'], 100, 0, 'allin'), // ハイカードのみ（弱い）
+      makeSdPlayer(1, ['9c', '9d'], 60, 0, 'allin'), // トリップナイン（強い）
+    ];
+    const state = makeShowdownState(players, board, 160);
+    const result = resolveShowdown(state);
+
+    expect(result.result).not.toBeNull();
+    // Bだけがwinnersに載る（Aは敗者であり、返還分はwinnersに含まれない）
+    expect(result.result!.winners).toHaveLength(1);
+    expect(result.result!.winners[0]).toEqual({ playerId: 1, amount: 120 });
+
+    // Aには40の返還のみ、Bは120を獲得
+    expect(result.players[0].stack).toBeCloseTo(40);
+    expect(result.players[1].stack).toBeCloseTo(120);
+
+    // チップ保存則: 合計は160のまま
+    const total = result.players.reduce((s, p) => s + p.stack, 0);
+    expect(total).toBeCloseTo(160);
+  });
+
+  it('HU: 一部しかコールされていないベットにフォールドされた場合、winners額に超過分を含めない', () => {
+    // A(id0) committedTotal=50, B(id1) committedTotal=20でfold（Aのベットの一部しかコールしていない）
+    const board: Card[] = ['2c', '7d', 'Kd', '4s', '9h'];
+    const players = [
+      makeSdPlayer(0, ['7c', '2h'], 50, 50, 'active'),
+      makeSdPlayer(1, ['9c', '9d'], 20, 80, 'folded'),
+    ];
+    const state = makeShowdownState(players, board, 70);
+    const result = resolveShowdown(state);
+
+    expect(result.result).not.toBeNull();
+    expect(result.result!.winners).toHaveLength(1);
+    // 実際に競われたのはBが拠出した20までの40（20*2）。残り30はAの自己資金の返還であり
+    // winnersのamountには含まれない。
+    expect(result.result!.winners[0]).toEqual({ playerId: 0, amount: 40 });
+
+    // Aの最終スタック = 50(拠出後) + 30(返還) + 40(pot) = 120
+    expect(result.players[0].stack).toBeCloseTo(120);
+    // Bは40しか失っていない(80のまま、foldなのでstackは変化しない)
+    expect(result.players[1].stack).toBeCloseTo(80);
+
+    const total = result.players.reduce((s, p) => s + p.stack, 0);
+    expect(total).toBeCloseTo(200);
+  });
+
+  it('3人: 正当なサイドポット（ショートがall-in、残り2人が更にベット）は退行しない', () => {
+    // P0(id0): 短いスタックでall-in(50)、最強ハンド(トリップK)→メインポットのみ資格
+    // P1(id1): committedTotal=150、2番目の強さ(トリップ9)→サイドポットを獲得
+    // P2(id2): committedTotal=150、最弱(ツーペア)
+    const board: Card[] = ['2c', '7d', 'Kd', '4s', '9h'];
+    const players = [
+      makeSdPlayer(0, ['Kc', 'Kh'], 50, 0, 'allin'),
+      makeSdPlayer(1, ['9c', '9d'], 150, 0, 'allin'),
+      makeSdPlayer(2, ['2h', '7h'], 150, 0, 'active'),
+    ];
+    const state = makeShowdownState(players, board, 350);
+    const result = resolveShowdown(state);
+
+    expect(result.result).not.toBeNull();
+    const winners = result.result!.winners;
+    expect(winners.find((w) => w.playerId === 0)?.amount).toBeCloseTo(150); // メインポット
+    expect(winners.find((w) => w.playerId === 1)?.amount).toBeCloseTo(200); // サイドポット
+    expect(winners.find((w) => w.playerId === 2)).toBeUndefined();
+
+    const total = result.players.reduce((s, p) => s + p.stack, 0);
+    expect(total).toBeCloseTo(350);
+  });
+
+  it('タイ: 同額拠出・同ランクは均等分割のまま（退行しない）', () => {
+    const board: Card[] = ['Qh', 'Jh', 'Th', '2d', '3c'];
+    const players = [
+      makeSdPlayer(0, ['As', 'Kd'], 50, 50, 'active'),
+      makeSdPlayer(1, ['Ah', 'Ks'], 50, 50, 'active'),
+    ];
+    const state = makeShowdownState(players, board, 100);
+    const result = resolveShowdown(state);
+
+    expect(result.result!.winners).toHaveLength(2);
+    expect(result.result!.winners.find((w) => w.playerId === 0)?.amount).toBeCloseTo(50);
+    expect(result.result!.winners.find((w) => w.playerId === 1)?.amount).toBeCloseTo(50);
+
+    // 各プレイヤーの元の持ち込み(stack+committedTotal=100)を保った合計200が保存される
+    const total = result.players.reduce((s, p) => s + p.stack, 0);
+    expect(total).toBeCloseTo(200);
+  });
 });

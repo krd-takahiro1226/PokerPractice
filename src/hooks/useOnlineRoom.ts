@@ -31,12 +31,12 @@ import {
 import type { GameState, PlayerActionType } from '../core/game/types';
 import type { Card } from '../core/cards';
 import type { PublicGameState } from '../core/online/types';
-import type { TournamentConfigInput, TournamentState } from '../core/online/tournament';
+import type { TournamentConfig, TournamentConfigInput, TournamentState } from '../core/online/tournament';
 import { legalActions, type LegalActions } from '../core/game/engine';
 import { canContinue } from '../core/online/tournament';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const NEXT_HAND_DELAY_MS = 4_000;
+const NEXT_HAND_DELAY_MS = 8_000;
 const REACTION_TTL_MS = 3_000;
 
 type RoomRow = {
@@ -83,6 +83,30 @@ function applyStateRow(row: RoomStateRow): void {
   store.setPhase(row.phase);
   store.setActionDeadline(row.action_deadline);
   store.setHandNumber(row.hand_number);
+
+  if (row.phase === 'hand_over' && pub?.result) {
+    const result = pub.result;
+    store.pushHandHistory({
+      handNumber: row.hand_number,
+      board: result.board,
+      winners: result.winners.map((w) => ({
+        displayName: pub.players[w.playerId]?.displayName ?? '?',
+        amount: w.amount,
+      })),
+      shown: result.shown.map((s) => ({
+        displayName: pub.players[s.playerId]?.displayName ?? '?',
+        hole: s.hole,
+        handName: s.handName,
+      })),
+      log: pub.log,
+      players: pub.players.map((p, i) => ({
+        playerId: i,
+        displayName: p.displayName,
+        pos: p.pos,
+        stackAfter: p.stack,
+      })),
+    });
+  }
 }
 
 async function refetchPlayers(roomId: string): Promise<void> {
@@ -98,7 +122,9 @@ async function refetchPlayers(roomId: string): Promise<void> {
 
 export function useOnlineRoom() {
   const store = useOnlineStore();
-  const [storedRoomCode] = useState<string | null>(() => getStoredRoomCode());
+  // 毎レンダーで localStorage を読み直す(マウント時固定だと「退出」直後の再レンダーで
+  // クリア済みのコードを返し続け、退出した部屋への再参加バナーが出てしまう)。
+  const storedRoomCode = getStoredRoomCode();
   const [deadlineMs, setDeadlineMs] = useState<number | null>(null);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -184,6 +210,7 @@ export function useOnlineRoom() {
       useOnlineStore.getState().setRoomStatus(roomRow.status);
       useOnlineStore.getState().setHostUid(roomRow.host_uid);
       useOnlineStore.getState().setRoomCode(roomRow.code);
+      useOnlineStore.getState().setRoomConfig(roomRow.config as TournamentConfig);
     }
     if (stateRow) applyStateRow(stateRow);
     if (playersRows) useOnlineStore.getState().setPlayers(playersRows);
@@ -433,11 +460,13 @@ export function useOnlineRoom() {
     version: store.version,
     actionDeadline: store.actionDeadline,
     handNumber: store.handNumber,
+    roomConfig: store.roomConfig,
     myHole: store.myHole,
     myUid: store.myUid,
     connectionStatus: store.connectionStatus,
     reactions: store.reactions,
     clearReaction: store.clearReaction,
+    handHistory: store.handHistory,
     storedRoomCode,
 
     // actions

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Panel } from '../Panel';
 import { cn } from '../../lib/cn';
 import { OnlineClientError } from '../../lib/onlineClient';
-import type { TournamentConfigInput } from '../../core/online/tournament';
+import type { TournamentConfig, TournamentConfigInput } from '../../core/online/tournament';
 import type { RoomPlayerRow } from '../../store/online';
+import { storeRoomCode } from '../../store/online';
 
 const STACK_OPTIONS = [50, 100, 200] as const;
 
@@ -13,6 +14,7 @@ type PreRoomProps = {
   onDisplayNameChange: (name: string) => void;
   onCreateRoom: (config: TournamentConfigInput, displayName: string) => Promise<unknown>;
   onJoinRoom: (code: string, displayName: string) => Promise<unknown>;
+  storedRoomCode: string | null;
 };
 
 type InRoomProps = {
@@ -21,6 +23,7 @@ type InRoomProps = {
   players: RoomPlayerRow[];
   hostUid: string | null;
   isHost: boolean;
+  roomConfig: TournamentConfig | null;
   onStartGame: () => Promise<void>;
   onLeave: () => Promise<void>;
 };
@@ -48,12 +51,40 @@ export function OnlineLobby(props: OnlineLobbyProps) {
   return <InRoomLobby {...props} />;
 }
 
-function PreRoomLobby({ displayName, onDisplayNameChange, onCreateRoom, onJoinRoom }: PreRoomProps) {
+function PreRoomLobby({
+  displayName,
+  onDisplayNameChange,
+  onCreateRoom,
+  onJoinRoom,
+  storedRoomCode,
+}: PreRoomProps) {
   const [stack, setStack] = useState<number>(100);
   const [code, setCode] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [rejoinCode, setRejoinCode] = useState(storedRoomCode);
+  const [rejoinError, setRejoinError] = useState<string | null>(null);
+  const [rejoinBusy, setRejoinBusy] = useState(false);
+
+  const handleRejoin = async () => {
+    if (!rejoinCode) return;
+    setRejoinError(null);
+    setRejoinBusy(true);
+    try {
+      await onJoinRoom(rejoinCode, displayName.trim());
+    } catch (e) {
+      if (e instanceof OnlineClientError && e.code === 'room_not_found') {
+        storeRoomCode(null);
+        setRejoinCode(null);
+      } else {
+        setRejoinError(mapError(e));
+      }
+    } finally {
+      setRejoinBusy(false);
+    }
+  };
 
   const handleCreate = async () => {
     setCreateError(null);
@@ -81,6 +112,20 @@ function PreRoomLobby({ displayName, onDisplayNameChange, onCreateRoom, onJoinRo
 
   return (
     <div className="space-y-4">
+      {rejoinCode && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
+          <span>前回の部屋 {rejoinCode} に参加中の可能性があります</span>
+          <button
+            onClick={handleRejoin}
+            disabled={rejoinBusy || !displayName.trim()}
+            className="rounded-lg border border-accent/40 bg-accent/20 px-3 py-1.5 text-xs font-semibold text-accent-bright transition hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {rejoinBusy ? '再参加中…' : '再参加'}
+          </button>
+          {rejoinError && <p className="w-full text-xs text-danger">{rejoinError}</p>}
+        </div>
+      )}
+
       <Panel title="表示名">
         <input
           value={displayName}
@@ -141,7 +186,7 @@ function PreRoomLobby({ displayName, onDisplayNameChange, onCreateRoom, onJoinRo
   );
 }
 
-function InRoomLobby({ roomCode, players, hostUid, isHost, onStartGame, onLeave }: InRoomProps) {
+function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGame, onLeave }: InRoomProps) {
   const [copied, setCopied] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -184,6 +229,18 @@ function InRoomLobby({ roomCode, players, hostUid, isHost, onStartGame, onLeave 
             {copied ? 'コピーしました' : 'コピー'}
           </button>
         </div>
+
+        {roomConfig && (
+          <div className="space-y-1 rounded-lg border border-border bg-surface-2/30 px-3 py-2 text-xs text-muted">
+            <div>初期スタック {roomConfig.startingStack}bb</div>
+            <div>
+              ブラインド {roomConfig.blindLevels[0]?.sb}/{roomConfig.blindLevels[0]?.bb} から{' '}
+              {Number.isFinite(roomConfig.handsPerLevel)
+                ? `${roomConfig.handsPerLevel} ハンドごとに上昇`
+                : '上昇なし'}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           {players.map((p) => (

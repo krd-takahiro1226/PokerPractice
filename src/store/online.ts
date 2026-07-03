@@ -6,7 +6,8 @@
 import { create } from 'zustand';
 import type { Card } from '../core/cards';
 import type { PublicGameState } from '../core/online/types';
-import type { TournamentState } from '../core/online/tournament';
+import type { TournamentConfig, TournamentState } from '../core/online/tournament';
+import type { HandLogEntry } from '../core/game/types';
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished';
 export type RoomPhase = 'idle' | 'in_hand' | 'hand_over' | 'finished';
@@ -28,11 +29,24 @@ export type RoomPlayerRow = {
 
 export type ReactionEvent = { id: string; uid: string; emoji: string };
 
+export type HandHistoryPlayer = { playerId: number; displayName: string; pos: string; stackAfter: number };
+export type HandHistoryEntry = {
+  handNumber: number;
+  board: Card[];
+  winners: { displayName: string; amount: number }[];
+  shown: { displayName: string; hole: [Card, Card]; handName: string }[];
+  log: HandLogEntry[];
+  players: HandHistoryPlayer[];
+};
+
+const MAX_HAND_HISTORY = 50;
+
 type OnlineStoreState = {
   roomId: string | null;
   roomCode: string | null;
   roomStatus: RoomStatus | null;
   hostUid: string | null;
+  roomConfig: TournamentConfig | null;
 
   players: RoomPlayerRow[];
   publicState: PublicGameState | null;
@@ -48,10 +62,13 @@ type OnlineStoreState = {
 
   reactions: ReactionEvent[];
 
+  handHistory: HandHistoryEntry[];
+
   setRoomId: (roomId: string | null) => void;
   setRoomCode: (roomCode: string | null) => void;
   setRoomStatus: (roomStatus: RoomStatus | null) => void;
   setHostUid: (hostUid: string | null) => void;
+  setRoomConfig: (roomConfig: TournamentConfig | null) => void;
   setPlayers: (players: RoomPlayerRow[]) => void;
   setPublicState: (publicState: PublicGameState | null) => void;
   setTournament: (tournament: TournamentState | null) => void;
@@ -64,6 +81,7 @@ type OnlineStoreState = {
   setConnectionStatus: (connectionStatus: ConnectionStatus) => void;
   addReaction: (reaction: ReactionEvent) => void;
   clearReaction: (id: string) => void;
+  pushHandHistory: (entry: HandHistoryEntry) => void;
   reset: () => void;
 };
 
@@ -72,6 +90,7 @@ const initialState = {
   roomCode: null,
   roomStatus: null,
   hostUid: null,
+  roomConfig: null,
 
   players: [],
   publicState: null,
@@ -86,6 +105,8 @@ const initialState = {
   connectionStatus: 'disconnected' as ConnectionStatus,
 
   reactions: [],
+
+  handHistory: [],
 } satisfies Partial<OnlineStoreState>;
 
 export const useOnlineStore = create<OnlineStoreState>()((set) => ({
@@ -95,6 +116,7 @@ export const useOnlineStore = create<OnlineStoreState>()((set) => ({
   setRoomCode: (roomCode) => set({ roomCode }),
   setRoomStatus: (roomStatus) => set({ roomStatus }),
   setHostUid: (hostUid) => set({ hostUid }),
+  setRoomConfig: (roomConfig) => set({ roomConfig }),
   setPlayers: (players) => set({ players }),
   setPublicState: (publicState) => set({ publicState }),
   setTournament: (tournament) => set({ tournament }),
@@ -107,6 +129,13 @@ export const useOnlineStore = create<OnlineStoreState>()((set) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   addReaction: (reaction) => set((s) => ({ reactions: [...s.reactions, reaction] })),
   clearReaction: (id) => set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })),
+  pushHandHistory: (entry) =>
+    set((s) => {
+      if (s.handHistory.some((h) => h.handNumber === entry.handNumber)) return s;
+      const next = [...s.handHistory, entry];
+      if (next.length > MAX_HAND_HISTORY) next.splice(0, next.length - MAX_HAND_HISTORY);
+      return { handHistory: next };
+    }),
   reset: () => set({ ...initialState }),
 }));
 

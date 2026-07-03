@@ -88,6 +88,15 @@ export async function createRoom(
   displayName: string,
 ): Promise<{ roomId: string; code: string }> {
   const builtConfig = buildTournamentConfig(config ?? {});
+
+  // ベストエフォートで24時間以上前の放置部屋を掃除する。失敗しても部屋作成は続行する。
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await db.from('rooms').delete().lt('created_at', cutoff);
+  } catch {
+    // best effort — a stuck cleanup must never block room creation.
+  }
+
   const code = await generateUniqueRoomCode(db);
 
   const { data: room, error: roomErr } = await db

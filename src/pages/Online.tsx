@@ -78,10 +78,12 @@ export function Online() {
       setGuestBusy(true);
       try {
         if (!supabase) throw new Error('supabase not configured');
+        saveStoredName(guestName.trim());
         const { error } = await supabase.auth.signInAnonymously();
         if (error) throw error;
-      } catch {
-        setGuestError('ゲスト参加は現在利用できません。Google でログインしてください。');
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        setGuestError(`ゲスト参加は現在利用できません（理由: ${detail}）。Google でログインしてください。`);
       } finally {
         setGuestBusy(false);
       }
@@ -131,6 +133,7 @@ export function Online() {
         onDisplayNameChange={handleDisplayNameChange}
         onCreateRoom={online.createRoom}
         onJoinRoom={online.joinRoom}
+        storedRoomCode={online.storedRoomCode}
       />
     );
   }
@@ -151,20 +154,26 @@ export function Online() {
   if (online.phase === 'in_hand' || online.phase === 'hand_over') {
     if (online.publicState) {
       return (
-        <OnlineTable
-          publicState={online.publicState}
-          myHole={online.myHole}
-          mySeatIndex={online.mySeatIndex}
-          isMyTurn={online.isMyTurn}
-          legal={online.legal}
-          deadlineMs={online.deadlineMs}
-          onAction={online.act}
-          onSendReaction={online.sendReaction}
-          reactions={online.reactions}
-          onExpireReaction={online.clearReaction}
-          phase={online.phase}
-          winnerUids={online.winnerUids}
-        />
+        <div className="md:flex md:min-h-[calc(100vh-4rem)] md:flex-col md:justify-center">
+          <OnlineTable
+            publicState={online.publicState}
+            myHole={online.myHole}
+            mySeatIndex={online.mySeatIndex}
+            isMyTurn={online.isMyTurn}
+            legal={online.legal}
+            deadlineMs={online.deadlineMs}
+            onAction={online.act}
+            onSendReaction={online.sendReaction}
+            reactions={online.reactions}
+            onExpireReaction={online.clearReaction}
+            phase={online.phase}
+            winnerUids={online.winnerUids}
+            onLeave={online.leaveRoom}
+            tournament={online.tournament}
+            myUid={online.myUid}
+            handHistory={online.handHistory}
+          />
+        </div>
       );
     }
     return (
@@ -182,6 +191,7 @@ export function Online() {
       players={online.players}
       hostUid={online.hostUid}
       isHost={online.isHost}
+      roomConfig={online.roomConfig}
       onStartGame={online.startGame}
       onLeave={online.leaveRoom}
     />
