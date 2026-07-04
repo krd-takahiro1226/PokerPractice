@@ -9,6 +9,9 @@ import { consumeRoomClosedNotice } from '../../hooks/useOnlineRoom';
 
 const STACK_OPTIONS = [50, 100, 200] as const;
 
+type Difficulty = 'easy' | 'normal' | 'hard';
+const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: 'やさしい', normal: 'ふつう', hard: 'つよい' };
+
 // room_players.connected はハートビート失効時にサーバー側で false に戻す仕組みが無い(ON-3、
 // docs/ONLINE-VERSUS.md §13.1)。最小修正としてクライアント側で last_seen からの経過時間を見て
 // 表示上の接続状態を導出する(サーバーの connected 列には頼らない)。
@@ -18,6 +21,10 @@ function isRecentlyConnected(lastSeen: string, nowMs: number): boolean {
   const seenAt = new Date(lastSeen).getTime();
   if (Number.isNaN(seenAt)) return false;
   return nowMs - seenAt < CONNECTION_STALE_MS;
+}
+
+function difficultyLabel(difficulty: Difficulty | undefined): string {
+  return DIFFICULTY_LABELS[difficulty ?? 'normal'];
 }
 
 type PreRoomProps = {
@@ -73,6 +80,8 @@ function PreRoomLobby({
   storedRoomCode,
 }: PreRoomProps) {
   const [stack, setStack] = useState<number>(100);
+  const [cpuFill, setCpuFill] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [code, setCode] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -110,7 +119,10 @@ function PreRoomLobby({
     setCreateError(null);
     setBusy(true);
     try {
-      await onCreateRoom({ startingStack: stack }, displayName.trim());
+      await onCreateRoom(
+        { startingStack: stack, cpuFill, difficulty: cpuFill ? difficulty : undefined },
+        displayName.trim(),
+      );
     } catch (e) {
       setCreateError(mapError(e));
     } finally {
@@ -183,6 +195,26 @@ function PreRoomLobby({
               ))}
             </select>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input type="checkbox" checked={cpuFill} onChange={(e) => setCpuFill(e.target.checked)} />
+            CPU で 6 人まで埋める
+          </label>
+          {cpuFill && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted">CPU の強さ</span>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+                className="rounded-lg border border-border bg-surface-2/50 px-2 py-1.5 text-sm outline-none"
+              >
+                {(Object.keys(DIFFICULTY_LABELS) as Difficulty[]).map((d) => (
+                  <option key={d} value={d}>
+                    {DIFFICULTY_LABELS[d]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {createError && <p className="text-sm text-danger">{createError}</p>}
           <button
             onClick={handleCreate}
@@ -305,13 +337,20 @@ function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGa
           ))}
         </div>
 
+        {roomConfig?.cpuFill && (
+          <p className="text-xs text-muted">
+            開始時に CPU × {Math.max(0, 6 - players.length)} が追加されます（
+            {difficultyLabel(roomConfig.difficulty)}）
+          </p>
+        )}
+
         {startError && <p className="text-sm text-danger">{startError}</p>}
 
         <div className="flex gap-2">
           {isHost && (
             <button
               onClick={handleStart}
-              disabled={busy || players.length < 2}
+              disabled={busy || players.length < 1 || (!roomConfig?.cpuFill && players.length < 2)}
               className="flex-1 rounded-xl bg-gradient-to-b from-accent-bright to-accent px-4 py-2.5 text-sm font-semibold text-[#04221a] shadow-lg shadow-accent/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               開始

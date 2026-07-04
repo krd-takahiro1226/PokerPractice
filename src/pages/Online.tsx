@@ -6,6 +6,7 @@ import { OnlineResults } from '../components/online/OnlineResults';
 import { isBackendEnabled, supabase } from '../lib/supabase';
 import { useAuth } from '../store/auth';
 import { useOnlineRoom } from '../hooks/useOnlineRoom';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const DISPLAY_NAME_KEY = 'poker-online-name';
 
@@ -28,6 +29,14 @@ function saveStoredName(name: string): void {
 }
 
 export function Online() {
+  return (
+    <ErrorBoundary>
+      <OnlineContent />
+    </ErrorBoundary>
+  );
+}
+
+function OnlineContent() {
   // Hooks must run unconditionally (React rules) even though the env-less branch below never
   // uses their values — see docs/ONLINE-VERSUS.md §2 regression guard.
   const auth = useAuth();

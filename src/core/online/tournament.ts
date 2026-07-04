@@ -6,6 +6,7 @@ export type TournamentConfig = {
   blindLevels: BlindLevel[];
   handsPerLevel: number;
   difficulty?: GameConfig['difficulty'];
+  cpuFill?: boolean; // true でopen時に空席をCPUで6人まで埋める。省略時false。
 };
 
 export type TournamentConfigInput = Partial<TournamentConfig>;
@@ -30,6 +31,8 @@ export type OnlinePlayer = {
   // 結果未確定のため status はまだ 'playing' のまま。applyHandResult がハンド確定時に
   // markLeft 相当の処理で 'left' に確定させる。
   pendingLeave?: boolean;
+  // 連続タイムアウト回数。省略時0扱い、旧データ互換のためoptional。
+  timeoutStreak?: number;
 };
 
 export type TournamentState = {
@@ -330,4 +333,59 @@ export function standings(t: TournamentState): OnlinePlayer[] {
     if (b.stack !== a.stack) return b.stack - a.stack;
     return a.seat - b.seat;
   });
+}
+
+/** CPU の合成 uid か判定する。実 uid(UUID) は ':' を含まないため衝突しない。
+ *  規約: 'cpu:1' 〜 'cpu:5'（席の埋め番号）。クライアント/サーバー両方から使う。 */
+export function isCpuUid(uid: string): boolean {
+  return uid.startsWith('cpu:');
+}
+
+/** 生存者(status==='playing')に人間が1人も居ない場合、トーナメントを即終了して順位を確定する。
+ *  - 残存CPUをスタック降順(同額はseat昇順)で並べ、finishRankを上位から連番付与。
+ *  - status='finished'、winnerUid=最大スタックCPU。
+ *  - 人間が1人でも生存していればtをそのまま返す(no-op)。
+ *  pendingLeave中の人間はstatus==='playingのままなので「人間が残っている」扱いになり誤終了しない。 */
+export function finishIfOnlyCpusLeft(t: TournamentState): TournamentState {
+  const survivors = t.players.filter((p) => p.status === 'playing');
+  if (survivors.length === 0) return t;
+  if (survivors.some((p) => !isCpuUid(p.uid))) return t;
+
+  const sorted = [...survivors].sort((a, b) => {
+    if (b.stack !== a.stack) return b.stack - a.stack; // stack DESC
+    return a.seat - b.seat; // seat ASC
+  });
+  const rankMap = new Map<string, number>();
+  sorted.forEach((p, i) => rankMap.set(p.uid, i + 1));
+
+  const players = t.players.map((p) =>
+    rankMap.has(p.uid) ? { ...p, finishRank: rankMap.get(p.uid)! } : p,
+  );
+
+  return {
+    ...t,
+    players,
+    status: 'finished',
+    winnerUid: sorted[0].uid,
+  };
+}
+
+/** uid の timeoutStreak を+1して返す。streakは更新後の値。対象が居なければt不変・streak 0。 */
+export function bumpTimeoutStreak(
+  t: TournamentState,
+  uid: string,
+): { tournament: TournamentState; streak: number } {
+  const player = t.players.find((p) => p.uid === uid);
+  if (!player) return { tournament: t, streak: 0 };
+  const streak = (player.timeoutStreak ?? 0) + 1;
+  const players = t.players.map((p) => (p.uid === uid ? { ...p, timeoutStreak: streak } : p));
+  return { tournament: { ...t, players }, streak };
+}
+
+/** uid の timeoutStreak を0にリセットして返す(自発アクション時)。対象が居なければt不変。 */
+export function resetTimeoutStreak(t: TournamentState, uid: string): TournamentState {
+  const player = t.players.find((p) => p.uid === uid);
+  if (!player) return t;
+  const players = t.players.map((p) => (p.uid === uid ? { ...p, timeoutStreak: 0 } : p));
+  return { ...t, players };
 }

@@ -7,6 +7,7 @@ import type { ChipDisplay } from '../../lib/chips';
 import { actionBadgeLabel } from '../../lib/onlineBadges';
 import { PlayingCard } from '../PlayingCard';
 import { MultiLineChart } from '../charts/MultiLineChart';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { cn } from '../../lib/cn';
 import type { HandHistoryEntry } from '../../store/online';
 import type { Street } from '../../core/game/types';
@@ -64,12 +65,14 @@ export function OnlineTablePanels({ tournament, myUid, handHistory }: OnlineTabl
 
       {activeTab && (
         <div className="rounded-xl border border-border bg-surface-2/30 p-3">
-          {activeTab === 'structure' && <StructureTab tournament={tournament} />}
-          {activeTab === 'standings' && (
-            <StandingsTab tournament={tournament} myUid={myUid} chipDisplay={chipDisplay} />
-          )}
-          {activeTab === 'chart' && <MultiLineChart players={tournament.players} />}
-          {activeTab === 'history' && <HistoryTab handHistory={handHistory} chipDisplay={chipDisplay} />}
+          <ErrorBoundary key={activeTab}>
+            {activeTab === 'structure' && <StructureTab tournament={tournament} />}
+            {activeTab === 'standings' && (
+              <StandingsTab tournament={tournament} myUid={myUid} chipDisplay={chipDisplay} />
+            )}
+            {activeTab === 'chart' && <MultiLineChart players={tournament.players} />}
+            {activeTab === 'history' && <HistoryTab handHistory={handHistory} chipDisplay={chipDisplay} />}
+          </ErrorBoundary>
         </div>
       )}
     </div>

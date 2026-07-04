@@ -24,16 +24,17 @@ import {
   playerAction as apiPlayerAction,
   nextHand as apiNextHand,
   claimTimeout as apiClaimTimeout,
+  cpuAction as apiCpuAction,
   heartbeat as apiHeartbeat,
 } from '../lib/onlineClient';
-// Type-only imports from core are always fine; `legalActions` and `canContinue` are the two
-// pure core functions this hook is explicitly permitted to call (see task brief).
+// Type-only imports from core are always fine; `legalActions`, `canContinue`, and `isCpuUid` are
+// the three pure core functions this hook is explicitly permitted to call (see task brief).
 import type { GameState, PlayerActionType } from '../core/game/types';
 import type { Card } from '../core/cards';
 import type { PublicGameState } from '../core/online/types';
 import type { TournamentConfig, TournamentConfigInput, TournamentState } from '../core/online/tournament';
 import { legalActions, type LegalActions } from '../core/game/engine';
-import { canContinue } from '../core/online/tournament';
+import { canContinue, isCpuUid } from '../core/online/tournament';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const NEXT_HAND_DELAY_MS = 8_000;
@@ -181,6 +182,8 @@ export function useOnlineRoom() {
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nextHandTimerRef = useRef<{ hand: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const timeoutClaimKeyRef = useRef<string | null>(null);
+  const cpuActionKeyRef = useRef<string | null>(null);
+  const cpuActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const disconnect = useCallback(() => {
     if (channelRef.current && supabase) {
@@ -196,6 +199,11 @@ export function useOnlineRoom() {
       nextHandTimerRef.current = null;
     }
     timeoutClaimKeyRef.current = null;
+    if (cpuActionTimerRef.current) {
+      clearTimeout(cpuActionTimerRef.current);
+      cpuActionTimerRef.current = null;
+    }
+    cpuActionKeyRef.current = null;
   }, []);
 
   // Subscribes to the room's realtime channel, then seeds the store from one-shot SELECTs
@@ -206,7 +214,7 @@ export function useOnlineRoom() {
     useOnlineStore.getState().setRoomId(roomId);
 
     const channel = supabase
-      .channel(`room:${roomId}`)
+      .channel(`room:${roomId}`, { config: { broadcast: { self: true } } })
       .on<RoomStateRow>(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'room_states', filter: `room_id=eq.${roomId}` },
@@ -252,9 +260,10 @@ export function useOnlineRoom() {
         },
       )
       .on('broadcast', { event: 'reaction' }, (payload) => {
-        const p = payload.payload as { uid: string; emoji: string };
+        const p = payload.payload as { uid: string; emoji: string; displayName?: unknown };
+        const displayName = typeof p.displayName === 'string' ? p.displayName : '?';
         const id = crypto.randomUUID();
-        useOnlineStore.getState().addReaction({ id, uid: p.uid, emoji: p.emoji });
+        useOnlineStore.getState().addReaction({ id, uid: p.uid, emoji: p.emoji, displayName });
         setTimeout(() => useOnlineStore.getState().clearReaction(id), REACTION_TTL_MS);
       })
       .subscribe((status) => {
@@ -367,7 +376,8 @@ export function useOnlineRoom() {
   const sendReaction = useCallback((emoji: string) => {
     const uid = useAuth.getState().userId;
     if (!channelRef.current || !uid) return;
-    channelRef.current.send({ type: 'broadcast', event: 'reaction', payload: { uid, emoji } });
+    const displayName = useOnlineStore.getState().players.find((p) => p.uid === uid)?.display_name ?? '?';
+    channelRef.current.send({ type: 'broadcast', event: 'reaction', payload: { uid, emoji, displayName } });
   }, []);
 
   const claimTimeout = useCallback(async (targetUid: string) => {
@@ -507,6 +517,7 @@ export function useOnlineRoom() {
   // wins). Dependency list intentionally uses primitives (not the `tournament` object) so a
   // realtime tick that doesn't actually change phase/handNumber/canContinue never resets the timer.
   const handNumber = store.handNumber;
+  const version = store.version;
   const canContinueNow = store.tournament ? canContinue(store.tournament) : false;
   useEffect(() => {
     if (phase !== 'hand_over' || !canContinueNow || !roomId) return;
@@ -538,6 +549,36 @@ export function useOnlineRoom() {
     if (!targetUid) return;
     void claimTimeout(targetUid);
   }, [deadlineMs, isMyTurn, claimTimeout]);
+
+  // cpu_action: when it's a CPU's turn, any client drives the server-authoritative CPU move after
+  // a short delay (演出上の間). Fires once per (handNumber, version) via cpuActionKeyRef, same
+  // pattern as timeoutClaimKeyRef above. Errors (stale/not_in_hand) mean another client already
+  // drove this move — swallow them.
+  useEffect(() => {
+    if (phase !== 'in_hand' || !publicState || publicState.toAct == null || !roomId) return;
+    const toActUid = publicState.players[publicState.toAct]?.uid;
+    if (!toActUid || !isCpuUid(toActUid)) return;
+    const key = `${handNumber}:${version}`;
+    if (cpuActionKeyRef.current === key) return;
+    cpuActionKeyRef.current = key;
+    const timer = setTimeout(() => {
+      cpuActionTimerRef.current = null;
+      apiCpuAction(roomId, version)
+        .then(({ version: v }) => useOnlineStore.getState().setVersion(v))
+        .catch(() => {});
+    }, 1200);
+    cpuActionTimerRef.current = timer;
+    return () => {
+      // タイマー未発火のままキャンセルされたらキーも戻す。戻さないと再実行時に key ガードで
+      // 弾かれてタイマーが二度と予約されず、CPU 手番が claim_timeout(30秒)まで止まる
+      // (StrictMode の effect 二重実行や、同 version での publicState 再適用で起きる)。
+      if (cpuActionTimerRef.current === timer) {
+        clearTimeout(timer);
+        cpuActionTimerRef.current = null;
+        cpuActionKeyRef.current = null;
+      }
+    };
+  }, [phase, publicState, handNumber, version, roomId]);
 
   return {
     // store snapshot

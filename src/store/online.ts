@@ -27,7 +27,7 @@ export type RoomPlayerRow = {
   joined_at: string; // ISO timestamp
 };
 
-export type ReactionEvent = { id: string; uid: string; emoji: string };
+export type ReactionEvent = { id: string; uid: string; emoji: string; displayName: string };
 
 export type HandHistoryPlayer = { playerId: number; displayName: string; pos: string; stackAfter: number };
 export type HandHistoryEntry = {

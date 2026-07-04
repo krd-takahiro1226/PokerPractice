@@ -79,6 +79,29 @@ function toSeatPlayer(p: PublicPlayer, isMe: boolean, myHole: [Card, Card] | nul
   };
 }
 
+// Seat-anchored reaction float (adapted from ReactionBar's FloatingReaction) — emoji only, no
+// displayName needed since it's already anchored to the sender's seat.
+const SEAT_REACTION_FLOAT_MS = 1500;
+
+function SeatReactionFloat({ reaction, onExpire }: { reaction: ReactionEvent; onExpire: (id: string) => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => onExpire(reaction.id), SEAT_REACTION_FLOAT_MS);
+    return () => clearTimeout(timer);
+  }, [reaction.id, onExpire]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 0, scale: 0.6 }}
+      animate={{ opacity: 1, y: -28, scale: 1.2 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: SEAT_REACTION_FLOAT_MS / 1000, ease: 'easeOut' }}
+      className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 text-xl"
+    >
+      {reaction.emoji}
+    </motion.div>
+  );
+}
+
 // フォールド勝ち(result.shown が空)/ショーダウン、単独勝者/スプリットの組み合わせを
 // 1行のバナー文言に整形する。表示専用の派生ロジックなのでコンポーネント内に留める。
 function resultBannerText(result: HandResult, players: PublicPlayer[], chipDisplay: ChipDisplay): string {
@@ -140,6 +163,12 @@ export function OnlineTable({
   useEffect(() => {
     if (phase === 'hand_over' && result) setCelebrateKey((k) => k + 1);
   }, [phase, result, handNumber]);
+
+  // Reactions from players seated in the current hand are anchored to their seat; reactions from
+  // a uid not in `players` (busted/spectating this hand) can't be placed on a seat, so those still
+  // go through the floating strip (with a displayName label for attribution).
+  const seatUids = new Set(players.map((p) => p.uid));
+  const unanchoredReactions = reactions.filter((r) => !seatUids.has(r.uid));
 
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
@@ -245,6 +274,7 @@ export function OnlineTable({
           const shownEntry = result?.shown.find((s) => s.playerId === i);
           const winEntry = result?.winners.find((w) => w.playerId === i);
           const actionBadge = actionBadges[i];
+          const seatReactions = reactions.filter((r) => r.uid === p.uid);
 
           return (
             <div
@@ -304,13 +334,18 @@ export function OnlineTable({
                     </motion.div>
                   )}
                 </AnimatePresence>
+                <AnimatePresence>
+                  {seatReactions.map((r) => (
+                    <SeatReactionFloat key={r.id} reaction={r} onExpire={onExpireReaction} />
+                  ))}
+                </AnimatePresence>
               </motion.div>
             </div>
           );
         })}
       </div>
 
-      <ReactionBar onSend={onSendReaction} reactions={reactions} onExpire={onExpireReaction} />
+      <ReactionBar onSend={onSendReaction} reactions={unanchoredReactions} onExpire={onExpireReaction} />
 
       {mySeatIndex != null && myHole && (
         <HandRankInfo hole={myHole} board={board} className="mx-auto" />

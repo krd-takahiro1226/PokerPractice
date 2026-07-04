@@ -14,12 +14,17 @@ import {
   markLeavingDuringHand,
   canContinue,
   addLatePlayer,
+  isCpuUid,
+  finishIfOnlyCpusLeft,
+  bumpTimeoutStreak,
+  resetTimeoutStreak,
 } from './core/online/tournament.ts';
 import type { TournamentConfig, TournamentConfigInput, TournamentState } from './core/online/tournament.ts';
 import { toPublicState } from './core/online/publicState.ts';
 import { progressToActionable } from './engine-driver.ts';
 import { cryptoRng } from './crypto-rng.ts';
 import { isValidBetAmount, resolveLeaveDuringHand } from './roomsLogic.ts';
+import { decideCpu } from './core/ai/index.ts';
 
 export type OnlineErrorCode =
   | 'unauthorized'
@@ -40,6 +45,9 @@ export class OnlineError extends Error {
     this.name = 'OnlineError';
   }
 }
+
+// この回数だけ連続でタイムアウトした人間プレイヤーは自動退出させる(放置席がハンドを止め続けるのを防ぐ)。
+const FORCED_LEAVE_TIMEOUT_STREAK = 3;
 
 // room_engine.state の実体。design doc の prose は「bare GameState」と読めるが、
 // tournament を挟まないとハンド間でスタック/順位/レベルを持ち越せないため実際はこの形。
@@ -97,6 +105,7 @@ function buildTournamentConfig(input: TournamentConfigInput): TournamentConfig {
     handsPerLevel:
       input.handsPerLevel != null ? Math.max(1, Math.floor(input.handsPerLevel)) : DEFAULT_HANDS_PER_LEVEL,
     difficulty: input.difficulty ?? 'normal',
+    cpuFill: input.cpuFill === true,
   };
 }
 
@@ -261,6 +270,11 @@ async function joinPlayingRoom(
       // no-op で「成功」してしまい、tournament に居ない参加者を作ってしまうため。
       if (currentTournament.status !== 'playing') throw new OnlineError('already_started');
       const newTournament = addLatePlayer(currentTournament, entry);
+      // 満席(CPU補完込みで6人)だと addLatePlayer が no-op するため、tournament に入れないまま
+      // room_players にだけ行が残ってしまう(ON-10 相当)のを防ぐ。
+      if (newTournament.players.length === currentTournament.players.length) {
+        throw new OnlineError('room_full');
+      }
       const newVersion = currentEngineRow.version + 1;
 
       const { data: updated, error: updateErr } = await db
@@ -395,7 +409,9 @@ export async function leaveRoom(db: SupabaseClient, uid: string, roomId: string)
   const { hand: foldedHand, pendingLeave } = resolveLeaveDuringHand(hand, seatUids, uid);
   const currentHand = foldedHand ? progressToActionable(foldedHand) : null;
 
-  const newTournament = pendingLeave ? markLeavingDuringHand(tournament, uid) : markLeft(tournament, uid);
+  const newTournament = finishIfOnlyCpusLeft(
+    pendingLeave ? markLeavingDuringHand(tournament, uid) : markLeft(tournament, uid),
+  );
 
   await persistHandTransition(db, roomId, newTournament, currentHand, seatUids, engineRow.version);
 
@@ -439,18 +455,34 @@ export async function startGame(db: SupabaseClient, uid: string, roomId: string)
     .order('seat', { ascending: true });
   dbError(playersErr);
 
-  // OnlineErrorCode に「人数不足」専用コードが無いため illegal_action を流用する。
-  if (!players || players.length < 2) {
-    throw new OnlineError('illegal_action', 'need at least 2 players');
-  }
-
-  const seats = players.map((p: { uid: string; display_name: string; seat: number }) => ({
+  const roomConfig = room.config as TournamentConfig;
+  const humanSeats = (players ?? []).map((p: { uid: string; display_name: string; seat: number }) => ({
     uid: p.uid,
     displayName: p.display_name,
     seat: p.seat,
   }));
 
-  const tournament = startTournament(seats, room.config as TournamentConfig);
+  // CPU 補完(cpuFill有効時): 人間の最大seatの次の空き番号からcpu:Nを合計6人になるまで追加する。
+  const cpuSeats: { uid: string; displayName: string; seat: number }[] = [];
+  if (roomConfig.cpuFill) {
+    let nextSeat = humanSeats.length > 0 ? Math.max(...humanSeats.map((s) => s.seat)) + 1 : 0;
+    let n = 1;
+    while (humanSeats.length + cpuSeats.length < 6) {
+      cpuSeats.push({ uid: `cpu:${n}`, displayName: `CPU ${n}`, seat: nextSeat });
+      n++;
+      nextSeat++;
+    }
+  }
+
+  // OnlineErrorCode に「人数不足」専用コードが無いため illegal_action を流用する。
+  const minHumans = roomConfig.cpuFill ? 1 : 2;
+  if (humanSeats.length < minHumans || humanSeats.length + cpuSeats.length < 2) {
+    throw new OnlineError('illegal_action', 'need at least 2 players');
+  }
+
+  const seats = [...humanSeats, ...cpuSeats];
+
+  const tournament = startTournament(seats, roomConfig);
   const setup = setupHand(tournament);
   const config: GameConfig = { ...setup.config, rng: cryptoRng() };
   const hand = startHand(null, config, setup.seatStacks);
@@ -506,6 +538,48 @@ export async function playerAction(
   if (!isValidBetAmount(move, legal)) throw new OnlineError('illegal_action');
 
   let newHand = applyAction(hand, seatIndex, move);
+  newHand = progressToActionable(newHand);
+
+  // 自発的にアクションしたので連続タイムアウトのカウントを0に戻す。
+  return persistHandTransition(db, roomId, resetTimeoutStreak(tournament, uid), newHand, seatUids, expectedVersion);
+}
+
+// ============================================================
+// cpu_action
+// ============================================================
+
+export async function cpuAction(
+  db: SupabaseClient,
+  uid: string,
+  roomId: string,
+  expectedVersion: number,
+): Promise<{ version: number }> {
+  await assertRoomMember(db, roomId, uid);
+
+  const { data: engineRow, error: engineErr } = await db
+    .from('room_engine')
+    .select('*')
+    .eq('room_id', roomId)
+    .maybeSingle();
+  dbError(engineErr);
+  if (!engineRow) throw new OnlineError('not_in_hand');
+  if (engineRow.version !== expectedVersion) throw new OnlineError('stale');
+
+  const { tournament, hand }: EngineState = engineRow.state;
+  if (hand === null) throw new OnlineError('not_in_hand');
+
+  const seatUids: string[] = engineRow.seat_uids;
+  // hand.toAct は persistHandTransition の不変条件により hand!==null のとき常に非null
+  if (hand.toAct === null || !isCpuUid(seatUids[hand.toAct])) {
+    // CPU手番でない、または既に他クライアントが先着済み → no-op success
+    return { version: engineRow.version };
+  }
+
+  // room_engine.state.hand は jsonb 経由で config.rng(関数)が落ちているため、decideCpu 用に再注入する。
+  const handForAi = { ...hand, config: { ...hand.config, rng: cryptoRng() } };
+  const move = decideCpu(handForAi, hand.toAct);
+
+  let newHand = applyAction(hand, hand.toAct, move);
   newHand = progressToActionable(newHand);
 
   return persistHandTransition(db, roomId, tournament, newHand, seatUids, expectedVersion);
@@ -594,7 +668,37 @@ export async function claimTimeout(
   let newHand = applyAction(hand, seatIndex, legal.canCheck ? { type: 'check' } : { type: 'fold' });
   newHand = progressToActionable(newHand);
 
-  return persistHandTransition(db, roomId, tournament, newHand, seatUids, engineRow.version);
+  // CPU はタイムアウト連続の対象外(自動打ちなので放置と区別できない)。streak=0扱いで常に通常パスへ。
+  const { tournament: bumped, streak } = isCpuUid(targetUid)
+    ? { tournament, streak: 0 }
+    : bumpTimeoutStreak(tournament, targetUid);
+
+  if (streak >= FORCED_LEAVE_TIMEOUT_STREAK) {
+    // leaveRoom と同じ経路で退出処理する(ON-2 と同じ allin 保留規則)。
+    const { hand: leftHand, pendingLeave } = resolveLeaveDuringHand(newHand, seatUids, targetUid);
+    const leftTournament = finishIfOnlyCpusLeft(
+      pendingLeave ? markLeavingDuringHand(bumped, targetUid) : markLeft(bumped, targetUid),
+    );
+    const result = await persistHandTransition(
+      db,
+      roomId,
+      leftTournament,
+      leftHand ? progressToActionable(leftHand) : null,
+      seatUids,
+      engineRow.version,
+    );
+
+    const { error: connErr } = await db
+      .from('room_players')
+      .update({ connected: false })
+      .eq('room_id', roomId)
+      .eq('uid', targetUid);
+    dbError(connErr);
+
+    return result;
+  }
+
+  return persistHandTransition(db, roomId, bumped, newHand, seatUids, engineRow.version);
 }
 
 // ============================================================
@@ -643,7 +747,8 @@ async function persistHandTransition(
     // ハンドがこの呼び出しで確定した。
     // (markLeft 済みの 'left' プレイヤーは applyHandResult 側が反映対象外にするため、
     //  ここで stack を正規化する必要はない)
-    newTournament = applyHandResult(tournament, hand, seatUids);
+    // 人間が全員バスト/離脱して残りが CPU のみになったら即終了・順位確定する。
+    newTournament = finishIfOnlyCpusLeft(applyHandResult(tournament, hand, seatUids));
     newHand = null;
     newSeatUids = [];
     phase = newTournament.status === 'finished' ? 'finished' : 'hand_over';
@@ -688,9 +793,10 @@ async function persistHandTransition(
   if (!updated || updated.length === 0) throw new OnlineError('stale');
 
   if (publicHand !== null) {
-    const { data: playersRows } = await db.from('room_players').select('uid, display_name').eq('room_id', roomId);
+    // room_players ではなく tournament.players から作る: CPU は room_players に居ないため、
+    // ここを名前の出所にしないと公開状態に CPU の表示名が載らない。
     const names: Record<string, string> = Object.fromEntries(
-      (playersRows ?? []).map((p: { uid: string; display_name: string }) => [p.uid, p.display_name]),
+      newTournament.players.map((p) => [p.uid, p.displayName]),
     );
     const publicState = toPublicState(publicHand, publicSeatUids, names);
     const { error: statesErr } = await db
@@ -719,6 +825,7 @@ async function persistHandTransition(
   // 全プレイヤーの stack/status/finish_rank を毎回まとめて同期する
   // (hand の参加者に限定しないほうが leave 等のケースでも取りこぼしなくシンプル)。
   for (const p of newTournament.players) {
+    if (isCpuUid(p.uid)) continue; // CPU は room_players(uid が uuid 型 FK)に存在しない
     const { error } = await db
       .from('room_players')
       .update({ stack: Math.round(p.stack), status: p.status, finish_rank: p.finishRank })
@@ -772,9 +879,10 @@ async function persistNewHand(
     if (!data || data.length === 0) throw new OnlineError('stale');
   }
 
-  const { data: playersRows } = await db.from('room_players').select('uid, display_name').eq('room_id', roomId);
+  // room_players ではなく tournament.players から作る: CPU は room_players に居ないため、
+  // ここを名前の出所にしないと公開状態に CPU の表示名が載らない。
   const names: Record<string, string> = Object.fromEntries(
-    (playersRows ?? []).map((p: { uid: string; display_name: string }) => [p.uid, p.display_name]),
+    tournament.players.map((p) => [p.uid, p.displayName]),
   );
   const publicState = toPublicState(hand, uids, names);
 
@@ -793,6 +901,7 @@ async function persistNewHand(
   dbError(statesErr);
 
   for (const p of tournament.players) {
+    if (isCpuUid(p.uid)) continue; // CPU は room_players(uid が uuid 型 FK)に存在しない
     const { error } = await db
       .from('room_players')
       .update({ stack: Math.round(p.stack), status: p.status, finish_rank: p.finishRank })
@@ -802,6 +911,7 @@ async function persistNewHand(
   }
 
   for (let i = 0; i < uids.length; i++) {
+    if (isCpuUid(uids[i])) continue; // CPU のホールは room_engine.state.hand(jsonb)内で足りる
     const { error } = await db
       .from('room_hole_cards')
       .insert({ room_id: roomId, hand_number: handNumber, uid: uids[i], hole: hand.players[i].hole });

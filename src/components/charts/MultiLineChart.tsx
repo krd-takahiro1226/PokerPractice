@@ -15,15 +15,25 @@ export function MultiLineChart({ players }: { players: OnlinePlayer[] }) {
   const innerW = width - PADDING.left - PADDING.right;
   const innerH = height - PADDING.top - PADDING.bottom;
 
-  const allValues = players.flatMap((p) => p.stackCurve);
-  if (allValues.length === 0) return null;
+  // 旧バージョンのサーバーで開始された対戦は stackCurve/stackCurveHands が undefined のことがある
+  // (フィールド追加前のデプロイ)。undefined を含む players を計算に混ぜると NaN/例外になるため、
+  // データを持つプレイヤーだけに絞ってから描画する。
+  const validPlayers = players.filter((p) => (p.stackCurve?.length ?? 0) > 0);
+  if (validPlayers.length === 0) {
+    return (
+      <p className="text-xs text-muted">
+        チップ推移データがまだありません（旧バージョンのサーバーで開始された対戦では表示できません）
+      </p>
+    );
+  }
 
+  const allValues = validPlayers.flatMap((p) => p.stackCurve ?? []);
   const minVal = Math.min(...allValues);
   const maxVal = Math.max(...allValues);
   const range = maxVal - minVal || 1;
   // 途中参加者の stackCurve は参加時点(hand番号)から始まり配列長が短い。インデックスではなく
   // 実ハンド番号の絶対軸でプロットしないと、参加タイミングが左端(開始点)にズレて見える(ON-9)。
-  const allHands = players.flatMap((p) => p.stackCurveHands);
+  const allHands = validPlayers.flatMap((p) => p.stackCurveHands ?? []);
   const maxHand = allHands.length > 0 ? Math.max(...allHands) : 0;
 
   const toX = (hand: number) => PADDING.left + (maxHand === 0 ? innerW / 2 : (hand / maxHand) * innerW);
@@ -43,10 +53,10 @@ export function MultiLineChart({ players }: { players: OnlinePlayer[] }) {
         <text x={PADDING.left - 4} y={PADDING.top + innerH} textAnchor="end" fontSize="10" fill="currentColor" opacity="0.6">
           {minVal.toFixed(0)}
         </text>
-        {players.map((p, idx) => {
-          const points = p.stackCurve
-            .map((v, i) => `${toX(p.stackCurveHands[i] ?? i)},${toY(v)}`)
-            .join(' ');
+        {validPlayers.map((p, idx) => {
+          const curve = p.stackCurve ?? [];
+          const hands = p.stackCurveHands ?? [];
+          const points = curve.map((v, i) => `${toX(hands[i] ?? i)},${toY(v)}`).join(' ');
           const color = CHART_COLORS[idx % CHART_COLORS.length];
           return (
             <polyline
@@ -62,7 +72,7 @@ export function MultiLineChart({ players }: { players: OnlinePlayer[] }) {
         })}
       </svg>
       <div className="flex flex-wrap gap-3">
-        {players.map((p, idx) => (
+        {validPlayers.map((p, idx) => (
           <div key={p.uid} className="flex items-center gap-1.5 text-xs text-muted">
             <span
               className="h-2 w-2 rounded-full"

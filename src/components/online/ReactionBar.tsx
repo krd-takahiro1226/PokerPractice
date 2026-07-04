@@ -20,9 +20,9 @@ type ReactionBarProps = {
 export function ReactionBar({ onSend, reactions, onExpire, className }: ReactionBarProps) {
   return (
     <div className={cn('flex flex-col items-center gap-1', className)}>
-      {/* Floating received reactions — a fixed-height strip so the float never overlaps
-          neighboring UI (seats/board above, action buttons below). */}
-      <div className="pointer-events-none relative h-10 w-10 overflow-hidden">
+      {/* Floating received reactions — these are the ones we couldn't anchor to a seat
+          (sender isn't in the current hand), so show displayName for attribution. */}
+      <div className="pointer-events-none relative h-10 w-16 overflow-hidden">
         <AnimatePresence>
           {reactions.map((r) => (
             <FloatingReaction key={r.id} reaction={r} onExpire={onExpire} />
@@ -63,9 +63,10 @@ function FloatingReaction({
       animate={{ opacity: 1, y: -28, scale: 1.2 }}
       exit={{ opacity: 0 }}
       transition={{ duration: FLOAT_DURATION_MS / 1000, ease: 'easeOut' }}
-      className="absolute bottom-0 left-1/2 -translate-x-1/2 text-2xl"
+      className="absolute bottom-0 left-1/2 flex -translate-x-1/2 flex-col items-center"
     >
-      {reaction.emoji}
+      <span className="text-2xl leading-none">{reaction.emoji}</span>
+      <span className="whitespace-nowrap text-[9px] text-muted">{reaction.displayName}</span>
     </motion.div>
   );
 }

@@ -5,6 +5,7 @@ import { formatAmount } from '../../lib/chips';
 import { standings } from '../../core/online/tournament';
 import type { TournamentState } from '../../core/online/tournament';
 import { MultiLineChart } from '../charts/MultiLineChart';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 type OnlineResultsProps = {
   tournament: TournamentState;
@@ -39,7 +40,9 @@ export function OnlineResults({ tournament, onLeave }: OnlineResultsProps) {
       </Panel>
 
       <Panel title="チップ推移">
-        <MultiLineChart players={ranked} />
+        <ErrorBoundary>
+          <MultiLineChart players={ranked} />
+        </ErrorBoundary>
       </Panel>
 
       <button

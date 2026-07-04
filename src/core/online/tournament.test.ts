@@ -9,6 +9,10 @@ import {
   canContinue,
   standings,
   addLatePlayer,
+  isCpuUid,
+  finishIfOnlyCpusLeft,
+  bumpTimeoutStreak,
+  resetTimeoutStreak,
   type TournamentConfig,
   type TournamentState,
 } from './tournament';
@@ -570,5 +574,158 @@ describe('addLatePlayer', () => {
     expect(late.status).toBe('busted');
     // totalPlayers=4, alreadyDone=0, k=1 → survivorsAfterThisHand=3, finishRank=4
     expect(late.finishRank).toBe(4);
+  });
+});
+
+// ─── isCpuUid ───────────────────────────────────────────────────────────────
+
+describe('isCpuUid', () => {
+  it("'cpu:1' / 'cpu:5' は true", () => {
+    expect(isCpuUid('cpu:1')).toBe(true);
+    expect(isCpuUid('cpu:5')).toBe(true);
+  });
+
+  it("':' を含まないUUID形式は false", () => {
+    expect(isCpuUid('a1b2c3d4-1234-5678-9abc-def012345678')).toBe(false);
+  });
+
+  it('空文字は false', () => {
+    expect(isCpuUid('')).toBe(false);
+  });
+});
+
+// ─── startTournament with CPU mixed seats ──────────────────────────────────
+
+describe('startTournament with CPU mixed seats', () => {
+  it('人間とCPUのuidが混在してもseat昇順・全stack=startingStack・status=playing・button=先頭で構築される', () => {
+    const seats = [
+      { uid: 'cpu:2', displayName: 'CPU 2', seat: 3 },
+      { uid: 'h1', displayName: 'H1', seat: 0 },
+      { uid: 'cpu:1', displayName: 'CPU 1', seat: 2 },
+      { uid: 'h2', displayName: 'H2', seat: 1 },
+    ];
+    const t = startTournament(seats, makeConfig());
+    expect(t.players.every((p) => p.stack === t.config.startingStack)).toBe(true);
+    expect(t.players.every((p) => p.status === 'playing')).toBe(true);
+    expect(t.players.map((p) => p.uid)).toEqual(['h1', 'h2', 'cpu:1', 'cpu:2']);
+    expect(t.buttonUid).toBe(t.players[0].uid);
+  });
+});
+
+// ─── finishIfOnlyCpusLeft ───────────────────────────────────────────────────
+
+describe('finishIfOnlyCpusLeft', () => {
+  it('人間が1人でも生存していればt不変(同一参照)', () => {
+    const t = startTournament(
+      [
+        { uid: 'h1', displayName: 'H1', seat: 0 },
+        { uid: 'cpu:1', displayName: 'CPU 1', seat: 1 },
+      ],
+      makeConfig(),
+    );
+    expect(finishIfOnlyCpusLeft(t)).toBe(t);
+  });
+
+  it('生存者がCPUのみなら stack DESC/seat ASC で finishRank を確定し、既存の busted finishRank は保持される', () => {
+    const t = startTournament(
+      [
+        { uid: 'h1', displayName: 'H1', seat: 0 },
+        { uid: 'cpu:1', displayName: 'CPU 1', seat: 1 },
+        { uid: 'cpu:2', displayName: 'CPU 2', seat: 2 },
+        { uid: 'cpu:3', displayName: 'CPU 3', seat: 3 },
+      ],
+      makeConfig(),
+    );
+    const withState: TournamentState = {
+      ...t,
+      players: t.players.map((p) => {
+        if (p.uid === 'h1') return { ...p, status: 'busted' as const, finishRank: 4, stack: 0 };
+        if (p.uid === 'cpu:1') return { ...p, stack: 500 };
+        if (p.uid === 'cpu:2') return { ...p, stack: 1000 };
+        if (p.uid === 'cpu:3') return { ...p, stack: 1000 };
+        return p;
+      }),
+    };
+
+    const next = finishIfOnlyCpusLeft(withState);
+    expect(next.status).toBe('finished');
+    expect(next.winnerUid).toBe('cpu:2');
+    const byUid = Object.fromEntries(next.players.map((p) => [p.uid, p]));
+    expect(byUid['cpu:2'].finishRank).toBe(1);
+    expect(byUid['cpu:3'].finishRank).toBe(2);
+    expect(byUid['cpu:1'].finishRank).toBe(3);
+    expect(byUid['h1'].finishRank).toBe(4); // 既存のbusted finishRankは変わらない
+  });
+
+  it('pendingLeave中の人間が生存者に含まれる場合は人間が残っている扱いでno-op', () => {
+    const t = startTournament(
+      [
+        { uid: 'h1', displayName: 'H1', seat: 0 },
+        { uid: 'cpu:1', displayName: 'CPU 1', seat: 1 },
+      ],
+      makeConfig(),
+    );
+    const withPending: TournamentState = {
+      ...t,
+      players: t.players.map((p) => (p.uid === 'h1' ? { ...p, pendingLeave: true } : p)),
+    };
+    expect(finishIfOnlyCpusLeft(withPending)).toBe(withPending);
+  });
+});
+
+// ─── bumpTimeoutStreak / resetTimeoutStreak ────────────────────────────────
+
+describe('bumpTimeoutStreak / resetTimeoutStreak', () => {
+  it('旧データ(timeoutStreakフィールド無し)からの+1でstreak=1になる', () => {
+    const t = startTournament(makeSeats(2), makeConfig());
+    const { tournament, streak } = bumpTimeoutStreak(t, 'p0');
+    expect(streak).toBe(1);
+    const p0 = tournament.players.find((p) => p.uid === 'p0')!;
+    expect(p0.timeoutStreak).toBe(1);
+  });
+
+  it('連続加算で 1→2→3', () => {
+    const t = startTournament(makeSeats(2), makeConfig());
+    const r1 = bumpTimeoutStreak(t, 'p0');
+    expect(r1.streak).toBe(1);
+    const r2 = bumpTimeoutStreak(r1.tournament, 'p0');
+    expect(r2.streak).toBe(2);
+    const r3 = bumpTimeoutStreak(r2.tournament, 'p0');
+    expect(r3.streak).toBe(3);
+  });
+
+  it('resetTimeoutStreak 後は 0 になる', () => {
+    const t = startTournament(makeSeats(2), makeConfig());
+    const bumped = bumpTimeoutStreak(t, 'p0').tournament;
+    const reset = resetTimeoutStreak(bumped, 'p0');
+    const p0 = reset.players.find((p) => p.uid === 'p0')!;
+    expect(p0.timeoutStreak).toBe(0);
+  });
+
+  it('対象uid不在なら bumpTimeoutStreak は t不変・streak=0、resetTimeoutStreak も t不変', () => {
+    const t = startTournament(makeSeats(2), makeConfig());
+    const bumpResult = bumpTimeoutStreak(t, 'no-such-uid');
+    expect(bumpResult.tournament).toBe(t);
+    expect(bumpResult.streak).toBe(0);
+    expect(resetTimeoutStreak(t, 'no-such-uid')).toBe(t);
+  });
+});
+
+// ─── addLatePlayer with full CPU-filled table ──────────────────────────────
+
+describe('addLatePlayer with full CPU-filled table', () => {
+  it('人間とCPU混在で満席(6人)ならno-op(playersの人数は変わらない)', () => {
+    const seats = [
+      { uid: 'h1', displayName: 'H1', seat: 0 },
+      { uid: 'h2', displayName: 'H2', seat: 1 },
+      { uid: 'cpu:1', displayName: 'CPU 1', seat: 2 },
+      { uid: 'cpu:2', displayName: 'CPU 2', seat: 3 },
+      { uid: 'cpu:3', displayName: 'CPU 3', seat: 4 },
+      { uid: 'cpu:4', displayName: 'CPU 4', seat: 5 },
+    ];
+    const t = startTournament(seats, makeConfig());
+    const next = addLatePlayer(t, { uid: 'h3', displayName: 'Late', seat: 6 });
+    expect(next).toBe(t);
+    expect(next.players).toHaveLength(6);
   });
 });

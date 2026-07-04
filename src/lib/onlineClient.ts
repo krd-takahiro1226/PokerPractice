@@ -19,6 +19,7 @@ export type OnlineRequest =
     }
   | { action: 'next_hand'; roomId: string }
   | { action: 'claim_timeout'; roomId: string; version: number; targetUid: string }
+  | { action: 'cpu_action'; roomId: string; version: number }
   | { action: 'heartbeat'; roomId: string };
 
 export type OnlineErrorCode =
@@ -103,6 +104,10 @@ export function nextHand(roomId: string) {
 
 export function claimTimeout(roomId: string, version: number, targetUid: string) {
   return invokeOnline<{ version: number }>({ action: 'claim_timeout', roomId, version, targetUid });
+}
+
+export function cpuAction(roomId: string, version: number) {
+  return invokeOnline<{ version: number }>({ action: 'cpu_action', roomId, version });
 }
 
 export function heartbeat(roomId: string) {

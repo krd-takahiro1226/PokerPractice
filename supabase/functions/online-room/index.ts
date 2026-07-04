@@ -16,6 +16,7 @@ export type OnlineRequest =
   | { action: 'player_action'; roomId: string; version: number; move: { type: PlayerActionType; amount?: number } }
   | { action: 'next_hand'; roomId: string }
   | { action: 'claim_timeout'; roomId: string; version: number; targetUid: string }
+  | { action: 'cpu_action'; roomId: string; version: number }
   | { action: 'heartbeat'; roomId: string };
 
 export type OnlineResponse<T = unknown> =
@@ -77,6 +78,8 @@ Deno.serve(async (req) => {
         return json({ ok: true, data: await rooms.nextHand(db, uid, body.roomId) });
       case 'claim_timeout':
         return json({ ok: true, data: await rooms.claimTimeout(db, uid, body.roomId, body.version, body.targetUid) });
+      case 'cpu_action':
+        return json({ ok: true, data: await rooms.cpuAction(db, uid, body.roomId, body.version) });
       case 'heartbeat':
         return json({ ok: true, data: await rooms.heartbeat(db, uid, body.roomId) });
       default:
