@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Panel } from '../components/Panel';
 import { OnlineLobby } from '../components/online/OnlineLobby';
 import { OnlineTable } from '../components/online/OnlineTable';
@@ -41,6 +41,19 @@ function OnlineContent() {
   // uses their values — see docs/ONLINE-VERSUS.md §2 regression guard.
   const auth = useAuth();
   const online = useOnlineRoom();
+
+  // 初回接続中の一瞬を「切断」と誤表示しないよう、一度でも connected になった後の
+  // 非connectedだけを「再接続中」バナー表示の対象にする(ON-C)。
+  const everConnectedRef = useRef(false);
+  const [showReconnectBanner, setShowReconnectBanner] = useState(false);
+  useEffect(() => {
+    if (online.connectionStatus === 'connected') {
+      everConnectedRef.current = true;
+      setShowReconnectBanner(false);
+    } else if (everConnectedRef.current) {
+      setShowReconnectBanner(true);
+    }
+  }, [online.connectionStatus]);
 
   const [displayName, setDisplayName] = useState('');
   // Guards the one-time "fill in a sensible default" effect below so it never fights a user who
@@ -153,16 +166,30 @@ function OnlineContent() {
     );
   }
 
+  const reconnectBanner = showReconnectBanner ? (
+    <div className="mb-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-center text-sm text-amber-300">
+      接続が切れました。再接続中…
+    </div>
+  ) : null;
+
   // A finished tournament always lands here regardless of the exact phase/roomStatus
   // combination — this must never be a dead end.
   if (online.phase === 'finished' || online.roomStatus === 'finished') {
     if (online.tournament) {
-      return <OnlineResults tournament={online.tournament} onLeave={online.leaveRoom} />;
+      return (
+        <>
+          {reconnectBanner}
+          <OnlineResults tournament={online.tournament} onLeave={online.leaveRoom} />
+        </>
+      );
     }
     return (
-      <Panel>
-        <p className="text-sm text-muted">結果を読み込み中…</p>
-      </Panel>
+      <>
+        {reconnectBanner}
+        <Panel>
+          <p className="text-sm text-muted">結果を読み込み中…</p>
+        </Panel>
+      </>
     );
   }
 
@@ -170,6 +197,7 @@ function OnlineContent() {
     if (online.publicState) {
       return (
         <div className="md:flex md:min-h-[calc(100vh-4rem)] md:flex-col md:justify-center">
+          {reconnectBanner}
           <OnlineTable
             publicState={online.publicState}
             myHole={online.myHole}
@@ -192,23 +220,29 @@ function OnlineContent() {
       );
     }
     return (
-      <Panel>
-        <p className="text-sm text-muted">テーブルを読み込み中…</p>
-      </Panel>
+      <>
+        {reconnectBanner}
+        <Panel>
+          <p className="text-sm text-muted">テーブルを読み込み中…</p>
+        </Panel>
+      </>
     );
   }
 
   // roomStatus === 'lobby' or phase === 'idle' (including the moment right after entering a room).
   return (
-    <OnlineLobby
-      mode="in-room"
-      roomCode={online.roomCode}
-      players={online.players}
-      hostUid={online.hostUid}
-      isHost={online.isHost}
-      roomConfig={online.roomConfig}
-      onStartGame={online.startGame}
-      onLeave={online.leaveRoom}
-    />
+    <>
+      {reconnectBanner}
+      <OnlineLobby
+        mode="in-room"
+        roomCode={online.roomCode}
+        players={online.players}
+        hostUid={online.hostUid}
+        isHost={online.isHost}
+        roomConfig={online.roomConfig}
+        onStartGame={online.startGame}
+        onLeave={online.leaveRoom}
+      />
+    </>
   );
 }

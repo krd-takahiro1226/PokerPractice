@@ -4,6 +4,7 @@ import {
   configForHand,
   commitHandResult,
   canContinue,
+  pruneBustedSeats,
   DEFAULT_TOURNAMENT_LEVELS,
   DEFAULT_HANDS_PER_LEVEL,
   CASH_LEVEL_ANTE,
@@ -191,6 +192,105 @@ describe('cash モード', () => {
 
     const next = commitHandResult(session, modifiedGame);
     expect(next.status).toBe('bust');
+  });
+});
+
+// ─── テスト: ゾンビ席除去（VS-1） ───────────────────────────────────────────────
+
+describe('ゾンビ席除去', () => {
+  it('非ヒーロー席がバストすると次ハンドの seatStacks から除外される', () => {
+    const session = startSession(TOURNAMENT_CONFIG);
+    const cfg = { ...configForHand(session), rng: makeRng(42) };
+    const game = startHand(null, cfg, session.seatStacks);
+    const ended = resolveShowdown(game);
+
+    // seat2, seat4（非ヒーロー）を強制バスト。他は正のスタックを維持。
+    const modifiedGame: GameState = {
+      ...ended,
+      players: ended.players.map((p) => {
+        if (p.id === 2 || p.id === 4) return { ...p, stack: 0 };
+        if (p.stack <= 0) return { ...p, stack: 1 }; // 他は正のスタックを維持
+        return p;
+      }),
+    };
+
+    const next = commitHandResult(session, modifiedGame);
+
+    expect(next.status).toBe('active');
+    expect(next.seatStacks).toHaveLength(4);
+    expect(next.seatStacks[0]).toBe(modifiedGame.players[0].stack);
+    expect(next.seatStacks).not.toContain(0);
+  });
+
+  it('縮小したテーブルでも新ハンドで実ブラインドが課される（BBが0スタック席に当たらない）', () => {
+    const session = startSession(TOURNAMENT_CONFIG);
+    const cfg = { ...configForHand(session), rng: makeRng(42) };
+    const game = startHand(null, cfg, session.seatStacks);
+    const ended = resolveShowdown(game);
+
+    const modifiedGame: GameState = {
+      ...ended,
+      players: ended.players.map((p) => {
+        if (p.id === 2 || p.id === 4) return { ...p, stack: 0 };
+        if (p.stack <= 0) return { ...p, stack: 1 };
+        return p;
+      }),
+    };
+
+    const next = commitHandResult(session, modifiedGame);
+
+    const handCfg = configForHand(next);
+    const newGame = startHand(null, handCfg, next.seatStacks);
+
+    expect(newGame.players).toHaveLength(4);
+    expect(newGame.currentBet).toBe(handCfg.bb);
+  });
+
+  it('SB/BB席が0スタックだと startHand が例外を投げる', () => {
+    const session = startSession(TOURNAMENT_CONFIG);
+    const cfg = configForHand(session);
+
+    expect(() => startHand(null, cfg, [100, 0, 100, 100, 100, 100])).toThrow();
+  });
+
+  it('pruneBustedSeats: 旧形式(ゾンビ席入り)の seatStacks を正規化し startHand できる', () => {
+    // ゾンビ席除外の導入前に保存されたセッションの復元経路(resume)を想定
+    const pruned = pruneBustedSeats([50, 0, 30, 0, 20, 0]);
+
+    expect(pruned).toEqual([50, 30, 20]);
+
+    const session = startSession(TOURNAMENT_CONFIG);
+    const cfg = configForHand(session);
+    expect(() => startHand(null, cfg, pruned)).not.toThrow();
+  });
+
+  it('pruneBustedSeats: ヒーロー(index0)は stack 0 でも残す', () => {
+    expect(pruneBustedSeats([0, 10, 0, 20])).toEqual([0, 10, 20]);
+  });
+});
+
+// ─── テスト: cash win 判定（VS-2） ──────────────────────────────────────────────
+
+describe('cash win 判定', () => {
+  it('cash で他全席スタック0 → status=win、canContinue=false', () => {
+    const session = startSession(CASH_CONFIG);
+    const cfg = { ...configForHand(session), rng: makeRng(42) };
+    let game = startHand(null, cfg, session.seatStacks);
+    game = resolveShowdown(game);
+
+    const totalChips = game.players.reduce((s, p) => s + p.stack, 0);
+    const modifiedGame: GameState = {
+      ...game,
+      players: game.players.map((p) =>
+        p.id === 0
+          ? { ...p, stack: totalChips }
+          : { ...p, stack: 0 },
+      ),
+    };
+
+    const next = commitHandResult(session, modifiedGame);
+    expect(next.status).toBe('win');
+    expect(canContinue(next)).toBe(false);
   });
 });
 

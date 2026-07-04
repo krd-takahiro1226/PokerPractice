@@ -1,19 +1,21 @@
+import { lazy } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { Home } from './pages/Home';
-import { Guide } from './pages/Guide';
-import { RangeTrainer } from './pages/RangeTrainer';
-import { EquityCalc } from './pages/EquityCalc';
-import { PotOdds } from './pages/PotOdds';
-import { Quiz } from './pages/Quiz';
-import { PerceivedRange } from './pages/PerceivedRange';
-import { Cbet } from './pages/Cbet';
-import { Versus } from './pages/Versus';
-import { Stats } from './pages/Stats';
-import { Review } from './pages/Review';
-import { Sessions } from './pages/Sessions';
-import { Glossary } from './pages/Glossary';
-import { Online } from './pages/Online';
+
+const Guide = lazy(() => import('./pages/Guide').then((m) => ({ default: m.Guide })));
+const RangeTrainer = lazy(() => import('./pages/RangeTrainer').then((m) => ({ default: m.RangeTrainer })));
+const EquityCalc = lazy(() => import('./pages/EquityCalc').then((m) => ({ default: m.EquityCalc })));
+const PotOdds = lazy(() => import('./pages/PotOdds').then((m) => ({ default: m.PotOdds })));
+const Quiz = lazy(() => import('./pages/Quiz').then((m) => ({ default: m.Quiz })));
+const PerceivedRange = lazy(() => import('./pages/PerceivedRange').then((m) => ({ default: m.PerceivedRange })));
+const Cbet = lazy(() => import('./pages/Cbet').then((m) => ({ default: m.Cbet })));
+const Versus = lazy(() => import('./pages/Versus').then((m) => ({ default: m.Versus })));
+const Stats = lazy(() => import('./pages/Stats').then((m) => ({ default: m.Stats })));
+const Review = lazy(() => import('./pages/Review').then((m) => ({ default: m.Review })));
+const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));
+const Glossary = lazy(() => import('./pages/Glossary').then((m) => ({ default: m.Glossary })));
+const Online = lazy(() => import('./pages/Online').then((m) => ({ default: m.Online })));
 
 const router = createBrowserRouter([
   {

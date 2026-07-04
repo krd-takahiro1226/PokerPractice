@@ -6,9 +6,9 @@ export type CbetStrategy = 'high' | 'mixed' | 'check';
 
 /** フロップのテクスチャ分類タグ（複数付与可）。 */
 export type FlopTexture =
-  | 'A-high-dry'
-  | 'K-high-dry'
-  | 'broadway-dry'
+  | 'A-high'
+  | 'K-high'
+  | 'broadway'
   | 'middle-connected'
   | 'low-connected'
   | 'low-board'
@@ -45,7 +45,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A72r',
     scenarioId: 'BTN_vs_BB',
     board: ['As', '7d', '2c'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはAx（AT〜A2s含む）をレンジに多く持ち、トップペア以上のナッツ級が大幅にBTN有利。BBはA72に刺さりにくいため、小サイズのレンジベットが最も効率的。',
@@ -54,7 +54,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-AK4r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ah', 'Kd', '4c'],
-    textures: ['A-high-dry', 'broadway-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはAx・Kxを豊富に持ちナッツ級が圧倒的にBTN寄り。BBがAKを持つ確率はBTNより低く、このボードでBTNのレンジ有利は明確。高頻度CB（レンジベット）が適切。',
@@ -63,7 +63,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A83r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ac', '8h', '3d'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのAxポーカーハンドがトップペア以上を多く形成する。BB側はA8やA3のスーテッドのみだが少なく、BTNのナッツ級有利が顕著。レンジベット気味で高頻度CBが有効。',
@@ -72,7 +72,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A52r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ad', '5h', '2s'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'Aハイの超ドライボード。BTNのAxハンドが多くトップペア以上を保持し、BBのコールレンジにはフロップに刺さるハンドが少ない。BTNのナッツ級が圧倒的に多く高頻度CBが最善。',
@@ -81,7 +81,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A94r',
     scenarioId: 'BTN_vs_BB',
     board: ['As', '9d', '4c'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはA9s・A4s・A9o等のナッツ級を持ち、BBには同様の強いAxが少ない。ドライなレインボーボードでBTNのレンジ有利が最大限に発揮され、小サイズの高頻度CBが機能する。',
@@ -90,7 +90,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A62s-tt',
     scenarioId: 'BTN_vs_BB',
     board: ['As', '6s', '2h'],
-    textures: ['A-high-dry', 'two-tone', 'dry'],
+    textures: ['A-high', 'two-tone', 'dry'],
     answer: 'high',
     explanation:
       'BTNはAx（ナッツ）を圧倒的に多く持ち、フラッシュドローはBBにもあるが本質的なナッツ級はBTN寄り。ツートーンだが依然としてBTN有利の構造でCB頻度は高い。',
@@ -101,7 +101,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K72r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ks', '7d', '2c'],
-    textures: ['K-high-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはKxハンドを多く持ち（KQ〜K2s）、このドライボードでトップペア以上のナッツ級がBTN有利。BBのコールレンジには7xや2xが少なく、小サイズのレンジベットが高効率。',
@@ -110,7 +110,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KQ5r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kd', 'Qh', '5c'],
-    textures: ['K-high-dry', 'broadway-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはKQ（2ペア）・KT+・Q+の強いブロードウェイハンドを多く持ち、ナッツ級がBTN有利。BBもKQスーテッドを持つが枚数で劣る。ドライなため高頻度CBが有効。',
@@ -119,7 +119,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K82r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kc', '8s', '2d'],
-    textures: ['K-high-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'KハイのドライボードでBTNのKxが多いため、ナッツ級はBTNに偏っている。BBのコールレンジは小ペアや中程度のスーコネが主で、K82に刺さりにくい。高頻度CBが正当化される。',
@@ -128,7 +128,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KJ3r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kh', 'Jd', '3s'],
-    textures: ['K-high-dry', 'broadway-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはKJ（2ペア）・KT+・JT等の強いブロードウェイを多く持つ。BBもKJ・JT等を持つがBTNに比べ枚数で劣り、ナッツ級はBTN有利。レインボードライでCB頻度は高い。',
@@ -137,7 +137,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K53r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ks', '5d', '3h'],
-    textures: ['K-high-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのKxがナッツ構造を支配し、BBのコールレンジは54s・53sのような小スーコネが主。このボードへの刺さり具合はBTNが圧倒的で、高頻度CBが最も効率的。',
@@ -146,7 +146,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K74tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Kh', '7h', '4d'],
-    textures: ['K-high-dry', 'two-tone', 'dry'],
+    textures: ['K-high', 'two-tone', 'dry'],
     answer: 'mixed',
     explanation:
       'KハイツートーンでBTNのKxはナッツ優位だが、フラッシュドローがBBのコールレンジに存在する。KハイドライのナッツはBTN有利だが、フラッシュドロー考慮でCB頻度はミックス程度が適切。',
@@ -157,7 +157,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-QJ4r',
     scenarioId: 'BTN_vs_BB',
     board: ['Qd', 'Jc', '4h'],
-    textures: ['broadway-dry', 'rainbow', 'dry'],
+    textures: ['broadway', 'rainbow', 'dry'],
     answer: 'mixed',
     explanation:
       'BTNはQJ・KQ・KJ等を多く持つが、BBもQJ・JT・QT等のブロードウェイコールレンジを持ちエクイティが接近する。ナッツ級はBTN有利だがやや拮抗しており、ミックス戦略が適切。',
@@ -166,7 +166,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-QT6r',
     scenarioId: 'BTN_vs_BB',
     board: ['Qh', 'Td', '6c'],
-    textures: ['broadway-dry', 'rainbow', 'dry'],
+    textures: ['broadway', 'rainbow', 'dry'],
     answer: 'mixed',
     explanation:
       'QTはBTNのブロードウェイ優位が残るが、BBのJT・QT・T9sがフロップに刺さる。ナッツ（AQやQQ等）はBTN有利だが、BBのドロー可能性も考慮してミックス戦略が合理的。',
@@ -175,7 +175,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-JT5r',
     scenarioId: 'BTN_vs_BB',
     board: ['Jc', 'Th', '5d'],
-    textures: ['broadway-dry', 'rainbow', 'dry'],
+    textures: ['broadway', 'rainbow', 'dry'],
     answer: 'mixed',
     explanation:
       'JTはBTNのオーバーペア・トップペア優位があるが、BBのJT・T9s・QJ等がボードにヒットする。両者がナッツ級を保有する可能性があり、ミックス戦略でポーカーレンジを守る。',
@@ -184,7 +184,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-Q74r',
     scenarioId: 'BTN_vs_BB',
     board: ['Qs', '7h', '4c'],
-    textures: ['broadway-dry', 'rainbow', 'dry'],
+    textures: ['broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのQxが多くナッツ（QQ・AQ等）がBTN有利。7や4にはBBのスーコネが刺さるが、メインのナッツ構造はBTN寄り。Q74はQJやKQより低位の連結が弱く高頻度CBが有効。',
@@ -193,7 +193,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KT8r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kd', 'Tc', '8h'],
-    textures: ['broadway-dry', 'middle-connected', 'rainbow'],
+    textures: ['broadway', 'middle-connected', 'rainbow'],
     answer: 'mixed',
     explanation:
       'KTはBTNのKx・Tx優位があるが、BBのKT・T9s・JT等がフロップに刺さりエクイティが接近する。ストレートドロー（QJ・J9等）も豊富でナッツ分布が完全にはBTN有利でなく、ミックスが適切。',
@@ -381,7 +381,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-AA9r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ah', 'As', '9c'],
-    textures: ['paired', 'A-high-dry', 'rainbow', 'dry'],
+    textures: ['paired', 'A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'AAペアボードは両者Axの確率は低いが、BTNのAx（AQ・AK等）がキッカー有利のトリップスを形成しやすい。ナッツ分布はBTN有利で高頻度CBが有効。',
@@ -401,7 +401,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K72m',
     scenarioId: 'BTN_vs_BB',
     board: ['Ks', '7s', '2s'],
-    textures: ['K-high-dry', 'monotone', 'wet'],
+    textures: ['K-high', 'monotone', 'wet'],
     answer: 'check',
     explanation:
       'モノトーンボードはフラッシュが完成しており、BBのスーテッドハンドのうち3枚スペードを持つものがナッツを保有する。BTNのKハイ有利は残るが、フラッシュ構造が交錯しCBは非効率。チェック多め。',
@@ -428,7 +428,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A64m',
     scenarioId: 'BTN_vs_BB',
     board: ['Ac', '6c', '4c'],
-    textures: ['A-high-dry', 'monotone', 'wet'],
+    textures: ['A-high', 'monotone', 'wet'],
     answer: 'mixed',
     explanation:
       'AハイモノトーンはBTNのAcフラッシュ（ナッツ）が存在するが、BBもスーテッドクラブを持ちフラッシュを保有する。BTNのAハイ有利は残るが、フラッシュ構造でCB頻度はミックス程度が適切。',
@@ -439,7 +439,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A72tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Ah', '7h', '2c'],
-    textures: ['A-high-dry', 'two-tone', 'dry'],
+    textures: ['A-high', 'two-tone', 'dry'],
     answer: 'high',
     explanation:
       'ツートーンだがAハイドライ構造でBTNのAxが圧倒的ナッツ優位。フラッシュドロー存在はCB頻度を若干下げるが、基本的にBTNのレンジ有利は維持される。高頻度CB（やや小サイズ）が適切。',
@@ -448,7 +448,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K82tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Kd', '8d', '2c'],
-    textures: ['K-high-dry', 'two-tone', 'dry'],
+    textures: ['K-high', 'two-tone', 'dry'],
     answer: 'high',
     explanation:
       'KハイツートーンでもBTNのKxナッツ優位は明確。フラッシュドローはBBにもあるがナッツ（Kx）の有利は変わらない。若干CB頻度を抑えつつも高頻度CBが適切。',
@@ -457,7 +457,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-QT6tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Qd', 'Td', '6h'],
-    textures: ['broadway-dry', 'two-tone', 'wet'],
+    textures: ['broadway', 'two-tone', 'wet'],
     answer: 'mixed',
     explanation:
       'ツートーンのQT6はフラッシュドローとストレートドロー（KJ・J9）が豊富。BBのJTs・QTs等がドローを多く持ち、ナッツ分布が拮抗〜BB有利方向。CB頻度はミックス程度が適切。',
@@ -495,7 +495,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-AQ2r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ac', 'Qd', '2h'],
-    textures: ['A-high-dry', 'broadway-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNはAx・Qxを豊富に持ちナッツ（AQ等）が多い。BBのコールレンジはこのボードにヒットしにくく、AQ2ドライでBTNのレンジ有利は明確。高頻度CBが最適。',
@@ -504,7 +504,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KT2r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ks', 'Td', '2c'],
-    textures: ['K-high-dry', 'broadway-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'broadway', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのKxとTxがナッツ構造を支配。BBのJTs・T9s等が一部刺さるが、KT2ドライレインボーでBTNのナッツ有利は明確。高頻度CBが機能する。',
@@ -513,7 +513,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A34r',
     scenarioId: 'BTN_vs_BB',
     board: ['As', '3d', '4c'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのAxハンド（AK〜A2s）がトップペア以上を多く形成し、ナッツ級がBTN有利。BBのA3s・A4s等は一部刺さるがBTNに比べ少なく、高頻度CBが有効。',
@@ -540,7 +540,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KJ6tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Kh', 'Jd', '6h'],
-    textures: ['K-high-dry', 'broadway-dry', 'two-tone'],
+    textures: ['K-high', 'broadway', 'two-tone'],
     answer: 'mixed',
     explanation:
       'BTNのKxとJxがナッツを形成しやすいが、ツートーンでBBのQTs・JTs等がフラッシュドローを持つ。ナッツ優位はBTN有利だが、フラッシュドロー含みのBBレンジを考慮してミックスが適切。',
@@ -549,7 +549,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A96r',
     scenarioId: 'BTN_vs_BB',
     board: ['Ad', '9s', '6c'],
-    textures: ['A-high-dry', 'rainbow', 'dry'],
+    textures: ['A-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのAxがナッツを独占的に保有。BBは96s・A9s等が一部刺さるが、A96レインボーでのBTNのレンジ有利は明確。高頻度CBが最善。',
@@ -558,7 +558,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-JT7r',
     scenarioId: 'BTN_vs_BB',
     board: ['Jh', 'Tc', '7d'],
-    textures: ['broadway-dry', 'middle-connected', 'rainbow', 'wet'],
+    textures: ['broadway', 'middle-connected', 'rainbow', 'wet'],
     answer: 'mixed',
     explanation:
       'JT7はBTNのJx・Tx優位があるが、BBの98s・89s・QTs等がストレートドローを形成する。ナッツ（Q・K等のストレート）は拮抗しており、ミックス戦略が適切。',
@@ -567,7 +567,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K36r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kc', '3h', '6d'],
-    textures: ['K-high-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'rainbow', 'dry'],
     answer: 'high',
     explanation:
       'BTNのKxがナッツを形成しBBのコールレンジにはK36に刺さるハンドが少ない。超ドライなK低ランクボードでBTNのレンジ有利が最大限。高頻度CBが最適。',
@@ -578,7 +578,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-QJ8tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Qc', 'Jh', '8c'],
-    textures: ['broadway-dry', 'two-tone', 'wet'],
+    textures: ['broadway', 'two-tone', 'wet'],
     answer: 'mixed',
     explanation:
       'QJ8ツートーンはBTNのQJ・AQ・AJ等がナッツ級だが、BBのQJ・JTs・T9s・KTs等が多くヒットする。フラッシュドローも加わりナッツ分布が拮抗。CB頻度はミックスが適切。',
@@ -587,7 +587,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-KQ9tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Kd', 'Qd', '9c'],
-    textures: ['K-high-dry', 'broadway-dry', 'two-tone'],
+    textures: ['K-high', 'broadway', 'two-tone'],
     answer: 'mixed',
     explanation:
       'KQ9ツートーンはBTNのKQ（2ペア）がナッツだが、BBのKQ・QJ・KJ等もブロードウェイを持つ。フラッシュドローも存在しCB頻度はやや抑えてミックスが最善。',
@@ -596,16 +596,16 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-A8s-tt',
     scenarioId: 'BTN_vs_BB',
     board: ['As', '8d', '5d'],
-    textures: ['A-high-dry', 'two-tone'],
+    textures: ['A-high', 'two-tone'],
     answer: 'mixed',
     explanation:
-      'AハイのツートーンはBTNのAxが優位だが、BBのフラッシュドロー（ダイヤモンド）と85s等の2ペアが存在する。純粋なA-high-dryより一段CB頻度を下げてミックスが適切。',
+      'AハイのツートーンはBTNのAxが優位だが、BBのフラッシュドロー（ダイヤモンド）と85s等の2ペアが存在する。純粋なA-highのドライボードより一段CB頻度を下げてミックスが適切。',
   },
   {
     id: 'cb-btnbb-J96tt',
     scenarioId: 'BTN_vs_BB',
     board: ['Jh', '9s', '6h'],
-    textures: ['broadway-dry', 'middle-connected', 'two-tone', 'wet'],
+    textures: ['broadway', 'middle-connected', 'two-tone', 'wet'],
     answer: 'mixed',
     explanation:
       'J96ツートーンはBTNのJxが優位だが、BBのT8s・87s・97s等がストレートドローを持ちフラッシュドローも加わる。ナッツ分布は拮抗しており、ミックス戦略でポーカーレンジを守る。',
@@ -614,7 +614,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-K93r',
     scenarioId: 'BTN_vs_BB',
     board: ['Kh', '9d', '3s'],
-    textures: ['K-high-dry', 'rainbow', 'dry'],
+    textures: ['K-high', 'rainbow', 'dry'],
     answer: 'mixed',
     explanation:
       'BTNのKxはナッツ優位だが、BBの93s・K9s等が一部刺さる。K9のミドルカードがあることで純粋なK低ランクボードより連結性が増し、CB頻度はミックス程度が適切。',
@@ -623,7 +623,7 @@ export const CBET_QUESTIONS: CbetQuestion[] = [
     id: 'cb-btnbb-AT9tt',
     scenarioId: 'BTN_vs_BB',
     board: ['As', 'Td', '9s'],
-    textures: ['A-high-dry', 'two-tone', 'wet'],
+    textures: ['A-high', 'two-tone', 'wet'],
     answer: 'mixed',
     explanation:
       'BTNのAxとTxがナッツ級だが、BBのJTs・T9s・QTs等がヒットしやすい。ツートーンにフラッシュドローも加わりAT9はAxx系の中でBB有利が出やすいボード。ミックスが適切。',

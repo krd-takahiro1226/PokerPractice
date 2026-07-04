@@ -311,7 +311,7 @@ type OnlineResponse<T = unknown> =
 type OnlineErrorCode =
   | 'unauthorized' | 'room_not_found' | 'room_full' | 'not_host'
   | 'not_your_turn' | 'illegal_action' | 'stale' | 'not_in_hand'
-  | 'already_started' | 'internal';
+  | 'already_started' | 'already_left' | 'internal';
 ```
 
 ### 6.2 アクション別 req/res

@@ -204,6 +204,7 @@ function GameTab() {
           ハンド #{state.handNumber}　{streetLabel[state.street]}
         </span>
       </div>
+      <div className="text-[10px] text-muted">※ 変更は次のハンドから適用されます</div>
 
       {/* Poker table */}
       <Panel className="overflow-visible p-4">
@@ -452,7 +453,7 @@ function SessionTab() {
           {/* 開始スタック */}
           <div className="mb-3">
             <div className="mb-1.5 text-xs text-muted">
-              開始スタック{format === 'tournament' ? '（チップ）' : '（bb）'}
+              開始スタック（bb）
             </div>
             <div className="flex gap-2">
               {[50, 100, 200].map((s) => (
@@ -501,7 +502,9 @@ function SessionTab() {
       <div className="flex flex-col gap-4">
         <Panel className="border-accent/30 bg-accent/5 p-5">
           <div className="text-lg font-bold text-accent-bright">
-            セッション終了 — {SESSION_RESULT_LABEL[session.status] ?? session.status}
+            セッション終了 — {session.status === 'win' && session.config.format === 'cash'
+              ? '対戦相手がいなくなりました'
+              : (SESSION_RESULT_LABEL[session.status] ?? session.status)}
           </div>
           <div className="mt-2 flex flex-wrap gap-4 text-sm text-muted">
             <span>プレイハンド数: <strong className="text-text">{session.handNumber}</strong></span>

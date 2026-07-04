@@ -147,6 +147,15 @@ export function startHand(
   const sbPlayer = players.find((p) => p.pos === 'SB')!;
   const bbPlayer = players.find((p) => p.pos === 'BB')!;
 
+  // 呼び出し側（session.ts 等）は stack<=0 の席を次ハンドの seatStacks から除外する契約になっている。
+  // ここに到達するのは呼び出し側のバグ（ゾンビ席がブラインドを課され currentBet が壊れる）なので、
+  // 静かに 0 を課すのではなく早期に検出して失敗させる。
+  if (sbPlayer.stack <= 0 || bbPlayer.stack <= 0) {
+    throw new Error(
+      `startHand: SB/BB seat has stack<=0 (sb seat ${sbPlayer.id}=${sbPlayer.stack}, bb seat ${bbPlayer.id}=${bbPlayer.stack}). Zero-stack seats must be excluded from seatStacks before starting a new hand.`,
+    );
+  }
+
   const sbAmount = Math.min(config.sb, sbPlayer.stack);
   const bbAmount = Math.min(config.bb, bbPlayer.stack);
 

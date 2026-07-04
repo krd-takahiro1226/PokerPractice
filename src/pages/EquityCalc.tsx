@@ -26,7 +26,9 @@ export function EquityCalc() {
   const used = [...hero, ...villain, ...board].filter(Boolean) as Card[];
   const heroReady = hero.every(Boolean);
   const villainReady = villain.every(Boolean);
-  const canRun = heroReady && villainReady && !running;
+  const boardCount = board.filter(Boolean).length;
+  const boardValid = [0, 3, 4, 5].includes(boardCount);
+  const canRun = heroReady && villainReady && boardValid && !running;
 
   function setSlot(target: Target, card: Card | null) {
     const setter = target.group === 'hero' ? setHero : target.group === 'villain' ? setVillain : setBoard;
@@ -181,6 +183,10 @@ export function EquityCalc() {
 
           {!heroReady || !villainReady ? (
             <p className="mt-4 text-center text-sm text-muted">Hero と Villain のカードを2枚ずつ選んでください</p>
+          ) : !boardValid ? (
+            <p className="mt-4 text-center text-sm text-muted">
+              ボードは0枚（プリフロップ）/3枚/4枚/5枚で入力してください
+            </p>
           ) : null}
         </Panel>
       </div>

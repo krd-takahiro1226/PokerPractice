@@ -27,7 +27,7 @@ export type SessionConfig = {
 
 export type SessionState = {
   config: SessionConfig;
-  seatStacks: number[];     // 長さ6。ハンド間で持ち越す現在スタック
+  seatStacks: number[];     // ハンド間で持ち越す現在スタック。長さは可変（バストした非ヒーロー席は次ハンドから除外される。index0=ヒーローは常に残る）
   handNumber: number;       // セッション内通し番号（1始まり。0=開始前）
   currentLevel: number;     // 0始まり（blindLevels の index）
   stackCurve: number[];     // ハンド終了時のヒーロー(seat0)スタック推移
@@ -64,6 +64,14 @@ export function startSession(config: SessionConfig): SessionState {
   };
 }
 
+/**
+ * バストした非ヒーロー席(stack<=0)を除外する。index0=ヒーローは常に残す。
+ * ゾンビ席除外導入前に保存されたセッション(全6席のまま stack 0 を含む)の復元時にも使う。
+ */
+export function pruneBustedSeats(seatStacks: number[]): number[] {
+  return seatStacks.filter((st, i) => i === 0 || st > 0);
+}
+
 /** 現在のブラインドレベルから GameConfig を構築（startHand に渡す）。 */
 export function configForHand(s: SessionState): GameConfig {
   const level = s.config.blindLevels[s.currentLevel];
@@ -80,10 +88,10 @@ export function configForHand(s: SessionState): GameConfig {
 /** ハンド終了後の GameState を受け取り、スタック持ち越し・レベル更新・終了判定を行う。 */
 export function commitHandResult(s: SessionState, ended: GameState): SessionState {
   // 1. seatStacks を resolveShowdown 後の最終スタックで更新
-  const seatStacks = ended.players.map((p) => p.stack);
+  const finalSeatStacks = ended.players.map((p) => p.stack);
 
   // 2. stackCurve にヒーロー(seat0)のスタックを追記
-  const stackCurve = [...s.stackCurve, seatStacks[0]];
+  const stackCurve = [...s.stackCurve, finalSeatStacks[0]];
 
   // 3. handNumber をインクリメント
   const handNumber = s.handNumber + 1;
@@ -102,20 +110,22 @@ export function commitHandResult(s: SessionState, ended: GameState): SessionStat
   // 5. 終了判定
   let status = s.status;
   if (status === 'active') {
-    if (seatStacks[0] <= 0) {
+    if (finalSeatStacks[0] <= 0) {
       // ヒーローがバスト
       status = 'bust';
-    } else if (s.config.format === 'tournament') {
-      // 他5席が全員スタック0 → ヒーロー独り勝ち
-      const othersBusted = seatStacks.slice(1).every((st) => st <= 0);
+    } else {
+      // 他の全席がスタック0 → ヒーロー独り勝ち（cash では「対戦相手がいなくなった」の意味）
+      const othersBusted = finalSeatStacks.slice(1).every((st) => st <= 0);
       if (othersBusted) {
         status = 'win';
       }
-    } else {
-      // cash: 自動終了なし（ユーザが quit するまで active）
-      // ヒーロースタック0のみ bust
     }
   }
+
+  // 6. バストした非ヒーロー席は次ハンドの座席リストから除外する（ゾンビ席防止）。
+  // ヒーロー(index0)は既に上のバスト判定で status を変えているため常に残る。
+  // セッション終了時（bust/win/quit）は最終結果表示用に全席分をそのまま保持する。
+  const seatStacks = status === 'active' ? pruneBustedSeats(finalSeatStacks) : finalSeatStacks;
 
   return {
     ...s,

@@ -549,6 +549,11 @@ function DrillView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
             <Button onClick={next} className="w-full" size="lg">
               次のハンド
             </Button>
+            <div className="lg:hidden">
+              <h3 className="mb-2 text-sm font-semibold text-muted">このシナリオのレンジ</h3>
+              <RangeGrid range={drill.scenario.range} highlight={drill.hand} />
+              <div className="mt-3"><RangeLegend /></div>
+            </div>
           </div>
         )}
       </Panel>
@@ -563,10 +568,15 @@ function DrillView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
           <StatBadge label="連続正解" value={stats.streak} accent="gold" />
           <StatBadge label="問題数" value={stats.attempts} accent="muted" />
         </div>
-        <Button variant="ghost" size="sm" onClick={() => useProgress.getState().reset()} className="w-full">
-          <RotateCcw size={14} /> 進捗をリセット
+        <Button variant="ghost" size="sm" onClick={handleResetAll} className="w-full">
+          <RotateCcw size={14} /> 全ドリルの進捗をリセット
         </Button>
       </div>
     </div>
   );
+}
+
+function handleResetAll() {
+  if (!window.confirm('全ドリルの進捗をリセットします。この操作は元に戻せません。よろしいですか？')) return;
+  useProgress.getState().reset();
 }

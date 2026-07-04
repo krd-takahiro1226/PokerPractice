@@ -6,7 +6,10 @@ type AuthState = {
   userId: string | null;
   email: string | null;
   status: 'loading' | 'guest' | 'signedIn';
+  isAnonymous: boolean;
   signInWithGoogle: () => Promise<void>;
+  /** 匿名アカウントに Google ID を紐付ける（ゲストデータを引き継いだままアップグレード）。 */
+  linkGoogle: () => Promise<{ ok: true } | { ok: false; error: string }>;
   signOut: () => Promise<void>;
   /** supabase.auth.onAuthStateChange を購読。main.tsx で一度だけ呼ぶ。 */
   init: () => void;
@@ -16,10 +19,11 @@ export const useAuth = create<AuthState>()((set) => ({
   userId: null,
   email: null,
   status: 'loading',
+  isAnonymous: false,
 
   init: () => {
     if (supabase === null) {
-      set({ status: 'guest', userId: null, email: null });
+      set({ status: 'guest', userId: null, email: null, isAnonymous: false });
       return;
     }
 
@@ -31,9 +35,10 @@ export const useAuth = create<AuthState>()((set) => ({
           status: 'signedIn',
           userId: session.user.id,
           email: session.user.email ?? null,
+          isAnonymous: session.user.is_anonymous ?? false,
         });
       } else {
-        set({ status: 'guest', userId: null, email: null });
+        set({ status: 'guest', userId: null, email: null, isAnonymous: false });
       }
     });
 
@@ -44,6 +49,7 @@ export const useAuth = create<AuthState>()((set) => ({
           status: 'signedIn',
           userId: session.user.id,
           email: session.user.email ?? null,
+          isAnonymous: session.user.is_anonymous ?? false,
         });
         // 初回ログイン時のみ localStorage → Supabase 移行を試みる
         if (event === 'SIGNED_IN') {
@@ -52,7 +58,7 @@ export const useAuth = create<AuthState>()((set) => ({
           });
         }
       } else {
-        set({ status: 'guest', userId: null, email: null });
+        set({ status: 'guest', userId: null, email: null, isAnonymous: false });
       }
     });
   },
@@ -65,9 +71,19 @@ export const useAuth = create<AuthState>()((set) => ({
     });
   },
 
+  linkGoogle: async () => {
+    if (supabase === null) return { ok: false, error: 'supabase not configured' };
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: { redirectTo: location.origin },
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  },
+
   signOut: async () => {
     if (supabase === null) return;
     await supabase.auth.signOut();
-    set({ status: 'guest', userId: null, email: null });
+    set({ status: 'guest', userId: null, email: null, isAnonymous: false });
   },
 }));

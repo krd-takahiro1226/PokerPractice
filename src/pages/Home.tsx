@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Grid3x3,
   Percent,
+  Swords,
   Target,
   TrendingDown,
   Trophy,
@@ -18,7 +19,7 @@ import {
 import { Panel } from '../components/Panel';
 import { ProgressRing } from '../components/ProgressRing';
 import { StatBadge } from '../components/StatBadge';
-import { accuracy, useProgress } from '../store/progress';
+import { accuracy, overallStats, useProgress } from '../store/progress';
 import { getScenario } from '../core/ranges';
 
 const FEATURES = [
@@ -93,6 +94,13 @@ const FEATURES = [
     accent: 'text-teal-400',
   },
   {
+    to: '/versus',
+    icon: Swords,
+    title: 'vs CPU 対戦',
+    desc: 'CPU相手に実戦形式で練習。キャッシュ・トーナメント両モードに対応。',
+    accent: 'text-fuchsia-400',
+  },
+  {
     to: '/sessions',
     icon: Trophy,
     title: '対戦成績',
@@ -111,9 +119,7 @@ const FEATURES = [
 export function Home() {
   const progress = useProgress();
   const { range, potOdds, quiz, byScenario } = progress;
-  const attempts = range.attempts + potOdds.attempts + quiz.attempts;
-  const correct = range.correct + potOdds.correct + quiz.correct;
-  const overall = attempts === 0 ? 0 : correct / attempts;
+  const { attempts, accuracy: overall } = overallStats(progress);
 
   const weakSpots = Object.entries(byScenario)
     .filter(([, s]) => s.attempts >= 3)

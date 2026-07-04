@@ -1,7 +1,8 @@
+import { Suspense } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BarChart2, BookMarked, BookOpen, Brain, Coins, Eye, GraduationCap, Grid3x3, Home, Percent, Swords, Target, Trophy, Users, type LucideIcon } from 'lucide-react';
-import { accuracy, useProgress } from '../store/progress';
+import { overallStats, useProgress } from '../store/progress';
 import { cn } from '../lib/cn';
 import { AuthButton } from './AuthButton';
 
@@ -58,10 +59,8 @@ function Logo() {
 }
 
 function OverallStat() {
-  const { range, potOdds, quiz, reqEquity, mdf, cbet, perceived } = useProgress();
-  const attempts = range.attempts + potOdds.attempts + quiz.attempts + reqEquity.attempts + mdf.attempts + cbet.attempts + perceived.attempts;
-  const correct = range.correct + potOdds.correct + quiz.correct + reqEquity.correct + mdf.correct + cbet.correct + perceived.correct;
-  const acc = attempts === 0 ? 0 : correct / attempts;
+  const progress = useProgress();
+  const { attempts, accuracy: acc } = overallStats(progress);
   return (
     <div className="rounded-xl border border-border bg-surface-2/50 p-3">
       <div className="text-[10px] uppercase tracking-wide text-muted">総合正答率</div>
@@ -122,7 +121,9 @@ export function AppShell() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
               >
-                <Outlet />
+                <Suspense fallback={<div className="flex justify-center py-20 text-sm text-muted">読み込み中…</div>}>
+                  <Outlet />
+                </Suspense>
               </motion.div>
             </AnimatePresence>
           </div>

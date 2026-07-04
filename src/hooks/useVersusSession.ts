@@ -15,6 +15,7 @@ import {
   configForHand,
   commitHandResult,
   canContinue,
+  pruneBustedSeats,
   type SessionConfig,
   type SessionState,
 } from '../core/game/session';
@@ -286,13 +287,16 @@ export function useVersusSession(): VersusSessionController {
     processingRef.current = false;
     savedRef.current = null;
 
-    setSession(saved.state);
-    sessionRef.current = saved.state;
+    // ゾンビ席除外の導入前に保存されたセッションは stack 0 の席を含みうる。
+    // そのまま startHand に渡すと SB/BB の stack<=0 検出で throw するため復元時に除外する。
+    const state = { ...saved.state, seatStacks: pruneBustedSeats(saved.state.seatStacks) };
+    setSession(state);
+    sessionRef.current = state;
     setSessionId(saved.recordId);
     sessionIdRef.current = saved.recordId;
 
-    const handConfig = configForHand(saved.state);
-    const newGame = startHand(null, handConfig, saved.state.seatStacks);
+    const handConfig = configForHand(state);
+    const newGame = startHand(null, handConfig, state.seatStacks);
     setGame(newGame);
   }, []);
 

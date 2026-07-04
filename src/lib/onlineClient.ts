@@ -33,6 +33,7 @@ export type OnlineErrorCode =
   | 'not_in_hand'
   | 'already_started'
   | 'seat_conflict'
+  | 'already_left'
   | 'internal';
 
 export type OnlineResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: OnlineErrorCode };

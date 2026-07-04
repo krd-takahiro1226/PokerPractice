@@ -29,12 +29,11 @@ export function Review() {
     if (!bmLoaded) loadBookmarks();
   }, [attLoaded, bmLoaded, loadAttempts, loadBookmarks]);
 
-  const mistakes = [...attempts].filter((a) => !a.correct).reverse();
+  const mistakes = [...attempts].filter((a) => !a.correct).sort(byTsDesc);
   const bookmarkedKeys = new Set(bookmarkItems.map((i) => i.problemKey));
-  const bookmarkedAttempts = [...attempts].filter((a) => {
-    const key = problemKeyOf(a);
-    return bookmarkedKeys.has(key);
-  }).reverse();
+  const bookmarkedAttempts = dedupeByProblemKey(
+    attempts.filter((a) => bookmarkedKeys.has(problemKeyOf(a))),
+  ).sort(byTsDesc);
 
   const displayList = mode === 'mistakes' ? mistakes : bookmarkedAttempts;
 
@@ -118,8 +117,22 @@ export function Review() {
   );
 }
 
-function problemKeyOf(a: QuizAttempt): string {
+export function problemKeyOf(a: QuizAttempt): string {
   if (a.scenarioId && a.handClass) return `${a.scenarioId}:${a.handClass}`;
   if (a.scenarioId) return a.scenarioId;
   return `${a.drillKind}:${a.ts}`;
+}
+
+export function byTsDesc(a: QuizAttempt, b: QuizAttempt): number {
+  return b.ts - a.ts;
+}
+
+export function dedupeByProblemKey(list: QuizAttempt[]): QuizAttempt[] {
+  const latest = new Map<string, QuizAttempt>();
+  for (const a of list) {
+    const key = problemKeyOf(a);
+    const existing = latest.get(key);
+    if (!existing || a.ts > existing.ts) latest.set(key, a);
+  }
+  return [...latest.values()];
 }

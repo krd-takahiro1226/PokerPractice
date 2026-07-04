@@ -12,7 +12,7 @@ const emptyStats = (): DrillStats => ({ attempts: 0, correct: 0, streak: 0, best
 
 type ScenarioStat = { attempts: number; correct: number };
 
-type ProgressState = {
+export type ProgressState = {
   range: DrillStats;
   potOdds: DrillStats;
   quiz: DrillStats;
@@ -90,4 +90,11 @@ export const useProgress = create<ProgressState>()(
 
 export function accuracy(stats: DrillStats): number {
   return stats.attempts === 0 ? 0 : stats.correct / stats.attempts;
+}
+
+export function overallStats(s: ProgressState): { attempts: number; correct: number; accuracy: number } {
+  const parts = [s.range, s.potOdds, s.quiz, s.reqEquity, s.mdf, s.cbet, s.perceived];
+  const attempts = parts.reduce((sum, p) => sum + p.attempts, 0);
+  const correct = parts.reduce((sum, p) => sum + p.correct, 0);
+  return { attempts, correct, accuracy: attempts === 0 ? 0 : correct / attempts };
 }

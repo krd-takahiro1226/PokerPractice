@@ -60,6 +60,8 @@ function mapError(e: unknown): string {
         return 'この対戦はすでに終了しています';
       case 'seat_conflict':
         return '混雑しています。もう一度お試しください';
+      case 'already_left':
+        return 'このトーナメントには戻れません(離脱済み)';
       default:
         return 'エラーが発生しました';
     }

@@ -37,6 +37,7 @@ export type OnlineErrorCode =
   | 'not_in_hand'
   | 'already_started'
   | 'seat_conflict'
+  | 'already_left'
   | 'internal';
 
 export class OnlineError extends Error {
@@ -117,10 +118,39 @@ export async function createRoom(
 ): Promise<{ roomId: string; code: string }> {
   const builtConfig = buildTournamentConfig(config ?? {});
 
-  // ベストエフォートで24時間以上前の放置部屋を掃除する。失敗しても部屋作成は続行する。
-  // status を lobby/finished に限定し、進行中(playing)の対戦を誤って削除しない(ON-6)。
+  // ベストエフォートで放置部屋を掃除する。失敗しても部屋作成は続行する。
+  // playing は「誰も戻らない」ことを確認できたものだけ finished 化し(ON-E)、その上で
+  // 24時間以上前の lobby/finished を削除する(ON-6)。finished 化した部屋は直後の削除に
+  // created_at 基準で拾われるため、この2段階の順序が重要。
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // 誰も戻らない進行中部屋の回収(ON-E): room_states の更新(ハンド進行)も room_players の
+    // last_seen(ハートビート)も24時間止まっている playing 部屋は誰も居ないとみなし finished 化する。
+    // 直後の lobby/finished 削除が created_at 基準で拾うため、この呼び出しでまとめて片付く。
+    const { data: playingRooms } = await db.from('rooms').select('id').eq('status', 'playing');
+    if (playingRooms && playingRooms.length > 0) {
+      const ids = playingRooms.map((r: { id: string }) => r.id);
+      const { data: staleStates } = await db
+        .from('room_states')
+        .select('room_id')
+        .in('room_id', ids)
+        .lt('updated_at', cutoff);
+      const staleIds = (staleStates ?? []).map((s: { room_id: string }) => s.room_id);
+      if (staleIds.length > 0) {
+        const { data: recentPlayers } = await db
+          .from('room_players')
+          .select('room_id')
+          .in('room_id', staleIds)
+          .gte('last_seen', cutoff);
+        const recentRoomIds = new Set((recentPlayers ?? []).map((p: { room_id: string }) => p.room_id));
+        const deadRoomIds = staleIds.filter((id: string) => !recentRoomIds.has(id));
+        if (deadRoomIds.length > 0) {
+          await db.from('rooms').update({ status: 'finished' }).in('id', deadRoomIds);
+        }
+      }
+    }
+
     await db.from('rooms').delete().lt('created_at', cutoff).in('status', ['lobby', 'finished']);
   } catch {
     // best effort — a stuck cleanup must never block room creation.
@@ -339,13 +369,17 @@ export async function joinRoom(
 
   const { data: existing, error: existingErr } = await db
     .from('room_players')
-    .select('seat')
+    .select('seat, status')
     .eq('room_id', room.id)
     .eq('uid', uid)
     .maybeSingle();
   dbError(existingErr);
-  // 再接続（既に着席済み）は部屋の状態に関わらず常に成功させる。
-  if (existing) return { roomId: room.id, seat: existing.seat };
+  if (existing) {
+    // 離脱済み(status: 'left')はトーナメントから既に除外されているため、再接続扱いで
+    // 成功させてはいけない(ON-D)。それ以外(playing/busted等)は着席済みとして従来通り成功。
+    if (existing.status === 'left') throw new OnlineError('already_left');
+    return { roomId: room.id, seat: existing.seat };
+  }
 
   if (room.status === 'lobby') return joinLobbyRoom(db, room, uid, displayName);
   if (room.status === 'playing') return joinPlayingRoom(db, room, uid, displayName);
