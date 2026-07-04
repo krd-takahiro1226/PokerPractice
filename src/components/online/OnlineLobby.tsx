@@ -1,12 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Panel } from '../Panel';
 import { cn } from '../../lib/cn';
 import { OnlineClientError } from '../../lib/onlineClient';
 import type { TournamentConfig, TournamentConfigInput } from '../../core/online/tournament';
 import type { RoomPlayerRow } from '../../store/online';
 import { storeRoomCode } from '../../store/online';
+import { consumeRoomClosedNotice } from '../../hooks/useOnlineRoom';
 
 const STACK_OPTIONS = [50, 100, 200] as const;
+
+// room_players.connected はハートビート失効時にサーバー側で false に戻す仕組みが無い(ON-3、
+// docs/ONLINE-VERSUS.md §13.1)。最小修正としてクライアント側で last_seen からの経過時間を見て
+// 表示上の接続状態を導出する(サーバーの connected 列には頼らない)。
+const CONNECTION_STALE_MS = 40_000;
+
+function isRecentlyConnected(lastSeen: string, nowMs: number): boolean {
+  const seenAt = new Date(lastSeen).getTime();
+  if (Number.isNaN(seenAt)) return false;
+  return nowMs - seenAt < CONNECTION_STALE_MS;
+}
 
 type PreRoomProps = {
   mode: 'pre-room';
@@ -39,6 +51,8 @@ function mapError(e: unknown): string {
         return '満席です';
       case 'already_started':
         return 'この対戦はすでに終了しています';
+      case 'seat_conflict':
+        return '混雑しています。もう一度お試しください';
       default:
         return 'エラーが発生しました';
     }
@@ -67,6 +81,12 @@ function PreRoomLobby({
   const [rejoinCode, setRejoinCode] = useState(storedRoomCode);
   const [rejoinError, setRejoinError] = useState<string | null>(null);
   const [rejoinBusy, setRejoinBusy] = useState(false);
+
+  // ホスト退出で部屋が閉じられて戻ってきた直後は一度だけ通知する(ON-5)。
+  const [roomClosedNotice, setRoomClosedNotice] = useState(false);
+  useEffect(() => {
+    if (consumeRoomClosedNotice()) setRoomClosedNotice(true);
+  }, []);
 
   const handleRejoin = async () => {
     if (!rejoinCode) return;
@@ -112,6 +132,17 @@ function PreRoomLobby({
 
   return (
     <div className="space-y-4">
+      {roomClosedNotice && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-bright bg-surface-2/60 px-4 py-3 text-sm">
+          <span>部屋が閉じられました</span>
+          <button
+            onClick={() => setRoomClosedNotice(false)}
+            className="rounded-lg border border-border-bright bg-surface-2 px-3 py-1.5 text-xs font-semibold transition hover:bg-surface-2/80"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
       {rejoinCode && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
           <span>前回の部屋 {rejoinCode} に参加中の可能性があります</span>
@@ -191,6 +222,13 @@ function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGa
   const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // 接続状態表示を last_seen 基準で定期的に再評価する(ON-3)。
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleCopy = async () => {
     if (!roomCode) return;
     try {
@@ -249,7 +287,12 @@ function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGa
               className="flex items-center justify-between rounded-lg border border-border bg-surface-2/30 px-3 py-2 text-sm"
             >
               <div className="flex items-center gap-2">
-                <span className={cn('h-2 w-2 rounded-full', p.connected ? 'bg-call' : 'bg-muted/50')} />
+                <span
+                  className={cn(
+                    'h-2 w-2 rounded-full',
+                    isRecentlyConnected(p.last_seen, now) ? 'bg-call' : 'bg-muted/50',
+                  )}
+                />
                 <span>{p.display_name}</span>
                 {p.uid === hostUid && (
                   <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent-bright">

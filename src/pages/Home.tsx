@@ -1,5 +1,20 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Brain, Coins, Eye, GraduationCap, Grid3x3, Percent, TrendingDown, Trophy, Users } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart2,
+  BookMarked,
+  BookOpen,
+  Brain,
+  Coins,
+  Eye,
+  GraduationCap,
+  Grid3x3,
+  Percent,
+  Target,
+  TrendingDown,
+  Trophy,
+  Users,
+} from 'lucide-react';
 import { Panel } from '../components/Panel';
 import { ProgressRing } from '../components/ProgressRing';
 import { StatBadge } from '../components/StatBadge';
@@ -36,6 +51,13 @@ const FEATURES = [
     accent: 'text-gold',
   },
   {
+    to: '/cbet',
+    icon: Target,
+    title: 'C-ベット訓練',
+    desc: 'フロップでのコンティニュエーションベット判断を状況別に練習。',
+    accent: 'text-orange-400',
+  },
+  {
     to: '/quiz',
     icon: Brain,
     title: 'ハンドクイズ',
@@ -48,6 +70,27 @@ const FEATURES = [
     title: '相手目線レンジ',
     desc: '自分のアクションが相手にどんなレンジを見せているかを意識する訓練。',
     accent: 'text-danger',
+  },
+  {
+    to: '/stats',
+    icon: BarChart2,
+    title: '学習統計',
+    desc: '全ドリルの正答率をポジション別・ハンド別に一覧して弱点を把握。',
+    accent: 'text-violet-400',
+  },
+  {
+    to: '/review',
+    icon: BookOpen,
+    title: '復習',
+    desc: '間違えた問題やブックマークした問題をまとめて振り返る。',
+    accent: 'text-rose-400',
+  },
+  {
+    to: '/glossary',
+    icon: BookMarked,
+    title: '用語集',
+    desc: 'ポーカー用語をカテゴリ別に検索できるリファレンス。',
+    accent: 'text-teal-400',
   },
   {
     to: '/sessions',

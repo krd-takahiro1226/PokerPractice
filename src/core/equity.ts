@@ -37,8 +37,10 @@ export function computeEquity(
   const winCount = new Array(n).fill(0) as number[];
   const tieCount = new Array(n).fill(0) as number[];
 
+  // iterations <= 0（不正な呼び出し）でも 0/0 = NaN にならないよう最低1にクランプする
+  const safeIterations = Math.max(1, iterations);
   // Board already complete -> deterministic single evaluation.
-  const trials = need === 0 ? 1 : iterations;
+  const trials = need === 0 ? 1 : safeIterations;
   const len = working.length;
   const progressStep = Math.max(1, Math.floor(trials / 20));
 

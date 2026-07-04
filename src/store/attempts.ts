@@ -46,12 +46,10 @@ export const useAttempts = create<AttemptsState>()((set, get) => ({
     if (uid) {
       insertAttempts(uid, [attempt]).catch(() => {});
     } else {
+      // read-modify-write で port.load() を経由すると連続呼び出しで古い内容が後勝ちしうるため、
+      // set() 済みの最新 in-memory state をそのまま保存する。
       const port = localPort<QuizAttempt[]>(STORAGE_KEY, []);
-      port.load().then((existing) => {
-        let next = [...existing, attempt];
-        if (next.length > MAX_LOCAL) next = next.slice(next.length - MAX_LOCAL);
-        port.save(next).catch(() => {});
-      });
+      port.save(get().attempts).catch(() => {});
     }
   },
 

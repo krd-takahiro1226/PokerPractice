@@ -274,6 +274,80 @@ describe('all-in コール処理', () => {
   });
 });
 
+describe('applyAction - allin (CORE-3): 最小レイズ未満のショートオールインは再オープンしない', () => {
+  // 席順(n=6, buttonSeat=0): 0=BTN,1=SB,2=BB,3=UTG,4=HJ,5=CO
+  function setupUtgRaiseHjCall(coStack: number) {
+    const config = freshConfig();
+    const seatStacks = [100, 100, 100, 100, 100, coStack];
+    let state = startHand(null, config, seatStacks);
+    const utg = state.players.find((p) => p.pos === 'UTG')!;
+    const hj = state.players.find((p) => p.pos === 'HJ')!;
+    const co = state.players.find((p) => p.pos === 'CO')!;
+
+    // UTG raise to 4 (currentBet 1→4, minRaise = 3)
+    state = applyAction(state, utg.id, { type: 'raise', amount: 4 });
+    expect(state.minRaise).toBe(3);
+    // HJ call to 4
+    state = applyAction(state, hj.id, { type: 'call' });
+    expect(state.players[hj.id].hasActedThisStreet).toBe(true);
+
+    return { state, utg, hj, co };
+  }
+
+  it('増分(2) < minRaise(3) のショートオールインは既アクション済みプレイヤーのhasActedThisStreetをリセットしない', () => {
+    const { state: before, utg, hj, co } = setupUtgRaiseHjCall(6); // newCommit=6, increment=2
+    const state = applyAction(before, co.id, { type: 'allin' });
+
+    expect(state.currentBet).toBe(6);
+    expect(state.minRaise).toBe(3); // ショートレイズはminRaiseを更新しない
+    expect(state.players[utg.id].hasActedThisStreet).toBe(true); // リセットされない
+    expect(state.players[hj.id].hasActedThisStreet).toBe(true); // リセットされない
+  });
+
+  it('増分(16) >= minRaise(3) のフルレイズ相当オールインは従来通り全員リセットする', () => {
+    const { state: before, utg, hj, co } = setupUtgRaiseHjCall(20); // newCommit=20, increment=16
+    const state = applyAction(before, co.id, { type: 'allin' });
+
+    expect(state.currentBet).toBe(20);
+    expect(state.minRaise).toBe(16);
+    expect(state.players[utg.id].hasActedThisStreet).toBe(false); // リセットされる
+    expect(state.players[hj.id].hasActedThisStreet).toBe(false); // リセットされる
+  });
+});
+
+describe('applyAction - bet/raise 防御ガード (ON-1 engine側)', () => {
+  it('bet の amount が NaN でも additional が負にならず、bbにフォールバックする', () => {
+    const state = startHand(null, freshConfig());
+    // フロップまで進めてbetの機会を作る
+    let s = state;
+    while (s.toAct !== null && s.street === 'preflop') {
+      const p = s.players[s.toAct];
+      const legal = legalActions(s, p.id);
+      s = applyAction(s, p.id, legal.canCheck ? { type: 'check' } : { type: 'call' });
+    }
+    if (s.toAct === null) s = advanceStreet(s);
+    expect(s.street).toBe('flop');
+
+    const actor = s.toAct!;
+    const before = s.players[actor];
+    const next = applyAction(s, actor, { type: 'bet', amount: NaN });
+    // NaN は bb にフォールバックされ、additional は非負
+    expect(next.currentBet).toBeCloseTo(s.config.bb);
+    expect(next.players[actor].stack).toBeGreaterThanOrEqual(0);
+    expect(next.players[actor].stack).toBeLessThanOrEqual(before.stack);
+  });
+
+  it('raise の amount が負の値でも additional が負にならない(コールと同等以下にクランプ)', () => {
+    let state = startHand(null, freshConfig());
+    const utg = state.players.find((p) => p.pos === 'UTG')!;
+    const beforeStack = state.players[utg.id].stack;
+    const next = applyAction(state, utg.id, { type: 'raise', amount: -100 });
+    // additional は Math.max(0, ...) でクランプされ、スタックが増えることはない
+    expect(next.players[utg.id].stack).toBeLessThanOrEqual(beforeStack);
+    expect(next.players[utg.id].stack).toBeGreaterThanOrEqual(0);
+  });
+});
+
 describe('isBettingRoundComplete', () => {
   it('UTGオープン後に残りが全員foldしたらtoActがnullになる', () => {
     let state = startHand(null, freshConfig());

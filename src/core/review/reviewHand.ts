@@ -492,22 +492,27 @@ function getBoardAtStreet(hand: SavedHand, street: Street): Card[] {
 }
 
 function buildVillainRangeFromLog(hand: SavedHand, _custom?: CustomRanges): Record<string, number> {
-  // Find the main villain (non-hero player still active at showdown or last to act)
-  const preflopLogs = hand.log.filter((l) => l.street === 'preflop' && l.playerId !== 0);
+  const preflopEntries = hand.log
+    .map((entry, i) => ({ entry, i }))
+    .filter(({ entry }) => entry.street === 'preflop');
 
-  // Find if there was an opener (someone who raised preflop)
-  const opener = preflopLogs.find((l) => l.action === 'raise' || l.action === 'bet');
+  // heroの最初のオープン(raise/bet)ログを特定
+  const heroOpen = preflopEntries.find(
+    ({ entry }) => entry.playerId === 0 && (entry.action === 'raise' || entry.action === 'bet'),
+  );
 
-  if (!opener) {
-    // No opener found: use a broad default range
-    return buildBroadRange();
-  }
+  // opener候補: heroの最初のオープンより前の非heroレイズのみ。heroが先にオープンしている場合、
+  // 後続の3bettorを opener として拾ってしまうとRFIレンジ(遥かに広い)を誤採用するため対象外にする。
+  const opener = preflopEntries.find(
+    ({ entry, i }) =>
+      entry.playerId !== 0 &&
+      (entry.action === 'raise' || entry.action === 'bet') &&
+      (!heroOpen || i < heroOpen.i),
+  )?.entry;
 
-  const openerPos = opener.pos;
-
-  if (opener.playerId !== 0) {
-    // Villain opened: use RFI range for that position
-    const scenario = getScenarioForMode(`RFI_${openerPos}`, hand.mode ?? 'tournament');
+  if (opener) {
+    // Villain opened first: use RFI range for that position
+    const scenario = getScenarioForMode(`RFI_${opener.pos}`, hand.mode ?? 'tournament');
     if (scenario) {
       const range: Record<string, number> = {};
       for (const [hc, action] of Object.entries(scenario.range)) {
@@ -518,13 +523,12 @@ function buildVillainRangeFromLog(hand: SavedHand, _custom?: CustomRanges): Reco
     }
   }
 
-  // Check if villain responded to hero's open
-  const heroOpenLog = hand.log.find((l) => l.playerId === 0 && l.street === 'preflop' && (l.action === 'raise' || l.action === 'bet'));
-  if (heroOpenLog) {
-    // Find first non-hero preflop responder who called/raised
-    const villainResponse = preflopLogs.find(
-      (l) => l.playerId !== 0 && (l.action === 'call' || l.action === 'raise'),
-    );
+  // heroが先にオープンした場合: hero open後の非heroコール/レイズ(3bet)からvsOpenレンジを推定
+  if (heroOpen) {
+    const villainResponse = preflopEntries.find(
+      ({ entry, i }) =>
+        i > heroOpen.i && entry.playerId !== 0 && (entry.action === 'call' || entry.action === 'raise'),
+    )?.entry;
     if (villainResponse) {
       const heroPos = hand.heroPos;
       const villainPos = villainResponse.pos;
@@ -545,15 +549,17 @@ function buildVillainRangeFromLog(hand: SavedHand, _custom?: CustomRanges): Reco
     }
   }
 
-  // Fallback: RFI range for opener position
-  const rfiScenario = getScenarioForMode(`RFI_${openerPos}`, hand.mode ?? 'tournament');
-  if (rfiScenario) {
-    const range: Record<string, number> = {};
-    for (const [hc, action] of Object.entries(rfiScenario.range)) {
-      const freq = action.raise ?? 0;
-      if (freq > 0) range[hc] = freq;
+  // Fallback: opener の RFI レンジ（scenario/range 取得に失敗した場合の保険）
+  if (opener) {
+    const rfiScenario = getScenarioForMode(`RFI_${opener.pos}`, hand.mode ?? 'tournament');
+    if (rfiScenario) {
+      const range: Record<string, number> = {};
+      for (const [hc, action] of Object.entries(rfiScenario.range)) {
+        const freq = action.raise ?? 0;
+        if (freq > 0) range[hc] = freq;
+      }
+      if (Object.keys(range).length > 0) return range;
     }
-    if (Object.keys(range).length > 0) return range;
   }
 
   return buildBroadRange();
@@ -615,7 +621,7 @@ function computeCallAmount(
 function computeVillainBet(hand: SavedHand, entry: HandLogEntry, logIndex: number): number {
   const priorBets = hand.log
     .slice(0, logIndex)
-    .filter((l) => l.street === entry.street && l.playerId !== 0 && (l.action === 'bet' || l.action === 'raise'));
+    .filter((l) => l.street === entry.street && l.playerId !== 0 && (l.action === 'bet' || l.action === 'raise' || l.action === 'allin'));
   const lastBet = priorBets[priorBets.length - 1];
   return lastBet?.amount ?? 0;
 }

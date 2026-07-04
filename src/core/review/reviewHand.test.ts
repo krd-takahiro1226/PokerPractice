@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { reviewHand } from './reviewHand';
+import { getScenarioForMode } from '../ranges';
+import { estimateEquityVsRange } from '../ai/estimateEquity';
 import type { SavedHand } from '../../store/history';
 import type { HandLogEntry, HandResult } from '../game/types';
+import type { Card } from '../cards';
 
 function makeSavedHand(overrides: Partial<SavedHand> = {}): SavedHand {
   const defaults: SavedHand = {
@@ -300,6 +303,49 @@ describe('reviewHand - 空ログ', () => {
     });
     const reviews = reviewHand(hand);
     expect(reviews).toEqual([]);
+  });
+});
+
+describe('reviewHand - heroオープン後の3bet (CORE-2 回帰)', () => {
+  it('heroオープン→非BBポジション(SB)の3bet: SBのRFIレンジではなく3betレンジをvillain rangeとして使う', () => {
+    const heroHole: [Card, Card] = ['Js', 'Jd'];
+    const board: Card[] = ['4c', '7d', '2h'];
+    const hand = makeSavedHand({
+      heroPos: 'BTN',
+      heroHole,
+      board,
+      log: [
+        // Hero opens BTN
+        { street: 'preflop', playerId: 0, pos: 'BTN', action: 'raise', amount: 2.5, potAfter: 4 },
+        // SB 3bets（非BBポジションからの3bet）
+        { street: 'preflop', playerId: 4, pos: 'SB', action: 'raise', amount: 9, potAfter: 12.5 },
+        // Hero calls the 3bet
+        { street: 'preflop', playerId: 0, pos: 'BTN', action: 'call', amount: 9, potAfter: 21 },
+        // Flop: SB checks, hero bets
+        { street: 'flop', playerId: 4, pos: 'SB', action: 'check', potAfter: 21 },
+        { street: 'flop', playerId: 0, pos: 'BTN', action: 'bet', amount: 10, potAfter: 31 },
+      ],
+    });
+
+    const reviews = reviewHand(hand);
+    const flopReview = reviews.find((r) => r.street === 'flop');
+    expect(flopReview?.metrics?.heroEquity).toBeDefined();
+    const actualEquity = flopReview!.metrics!.heroEquity!;
+
+    // 修正前のバグ挙動: SBが3bettorであるにもかかわらず、SBのRFIレンジ(遥かに広い)を
+    // 誤って villain range として使ってしまう。そのバグ挙動で計算したエクイティと比較し、
+    // 実際のレビュー結果が(プレミアム中心の狭い3betレンジに対してより不利な)有意に低い
+    // 値になっていること＝正しい分岐(3betレンジ)が使われたことを確認する。
+    const sbRfiScenario = getScenarioForMode('RFI_SB', hand.mode ?? 'tournament');
+    expect(sbRfiScenario).toBeDefined();
+    const wideRfiRange: Record<string, number> = {};
+    for (const [hc, action] of Object.entries(sbRfiScenario!.range)) {
+      const freq = action.raise ?? 0;
+      if (freq > 0) wideRfiRange[hc] = freq;
+    }
+    const buggyEquity = estimateEquityVsRange(heroHole, board, wideRfiRange, 4000);
+
+    expect(actualEquity).toBeLessThan(buggyEquity - 0.05);
   });
 });
 

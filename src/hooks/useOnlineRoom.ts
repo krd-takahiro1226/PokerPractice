@@ -39,6 +39,30 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const NEXT_HAND_DELAY_MS = 8_000;
 const REACTION_TTL_MS = 3_000;
 
+// ホストのロビー離脱で部屋が cascade delete された際(ON-5)、残った参加者のロビー画面に
+// 一度だけ「部屋が閉じられました」を表示するためのフラグ。sessionStorage 越しに渡すことで、
+// reset() でこのフックの状態が全部消えた後でも OnlineLobby 側が拾える(storeRoomCode と同じ手法)。
+const ROOM_CLOSED_NOTICE_KEY = 'poker-online-room-closed-notice';
+
+function markRoomClosedNotice(): void {
+  try {
+    sessionStorage.setItem(ROOM_CLOSED_NOTICE_KEY, '1');
+  } catch {
+    // ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+/** フラグが立っていれば消費して true を返す(一度読んだら消える)。 */
+export function consumeRoomClosedNotice(): boolean {
+  try {
+    if (sessionStorage.getItem(ROOM_CLOSED_NOTICE_KEY) !== '1') return false;
+    sessionStorage.removeItem(ROOM_CLOSED_NOTICE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 type RoomRow = {
   id: string;
   code: string;
@@ -184,6 +208,23 @@ export function useOnlineRoom() {
           }
         },
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+        (payload) => {
+          // Supabase Realtime は DELETE イベントに filter を適用しない(公式の制約)ため、
+          // 他の部屋の削除(24時間クリーンアップ等)でも届く。old の PK で自室か照合する。
+          const deletedId = (payload.old as { id?: string } | undefined)?.id;
+          if (deletedId !== roomId) return;
+          // ホストのロビー離脱で部屋が cascade delete された(ON-5)。既に自分の leaveRoom で
+          // reset 済み(roomId===null)なら何もしない(離脱した本人に二重で通知を出さないため)。
+          if (useOnlineStore.getState().roomId !== roomId) return;
+          markRoomClosedNotice();
+          disconnect();
+          storeRoomCode(null);
+          useOnlineStore.getState().reset();
+        },
+      )
       .on('broadcast', { event: 'reaction' }, (payload) => {
         const p = payload.payload as { uid: string; emoji: string };
         const id = crypto.randomUUID();
@@ -278,10 +319,23 @@ export function useOnlineRoom() {
   const act = useCallback(async (move: { type: PlayerActionType; amount?: number }) => {
     const s = useOnlineStore.getState();
     if (!s.roomId) throw new OnlineClientError('room_not_found', 'not in a room');
-    // On 'stale' failures we deliberately do not retry here; the next realtime update
-    // self-corrects the store and the caller can decide whether to surface an error.
-    const { version } = await apiPlayerAction(s.roomId, s.version, move);
-    useOnlineStore.getState().setVersion(version);
+    try {
+      const { version } = await apiPlayerAction(s.roomId, s.version, move);
+      useOnlineStore.getState().setVersion(version);
+    } catch (e) {
+      // 'stale' は realtime の次イベントでも自己修復するが、それを待たずに room_states を
+      // 読み直して即座に最新化する(ON-4: ユーザーが早く再試行できるようにする)。
+      if (e instanceof OnlineClientError && e.code === 'stale' && supabase) {
+        const { data: stateRow } = await supabase
+          .from('room_states')
+          .select('*')
+          .eq('room_id', s.roomId)
+          .maybeSingle<RoomStateRow>();
+        if (stateRow) applyStateRow(stateRow);
+      }
+      // 失敗自体は呼び出し元(OnlineTable)に伝えて表示させる。ここで握りつぶさない。
+      throw e;
+    }
   }, []);
 
   const sendReaction = useCallback((emoji: string) => {

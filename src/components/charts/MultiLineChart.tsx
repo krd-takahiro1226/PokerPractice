@@ -21,9 +21,12 @@ export function MultiLineChart({ players }: { players: OnlinePlayer[] }) {
   const minVal = Math.min(...allValues);
   const maxVal = Math.max(...allValues);
   const range = maxVal - minVal || 1;
-  const maxLen = Math.max(...players.map((p) => p.stackCurve.length));
+  // 途中参加者の stackCurve は参加時点(hand番号)から始まり配列長が短い。インデックスではなく
+  // 実ハンド番号の絶対軸でプロットしないと、参加タイミングが左端(開始点)にズレて見える(ON-9)。
+  const allHands = players.flatMap((p) => p.stackCurveHands);
+  const maxHand = allHands.length > 0 ? Math.max(...allHands) : 0;
 
-  const toX = (i: number) => PADDING.left + (maxLen === 1 ? innerW / 2 : (i / (maxLen - 1)) * innerW);
+  const toX = (hand: number) => PADDING.left + (maxHand === 0 ? innerW / 2 : (hand / maxHand) * innerW);
   const toY = (v: number) => PADDING.top + innerH - ((v - minVal) / range) * innerH;
 
   return (
@@ -41,7 +44,9 @@ export function MultiLineChart({ players }: { players: OnlinePlayer[] }) {
           {minVal.toFixed(0)}
         </text>
         {players.map((p, idx) => {
-          const points = p.stackCurve.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+          const points = p.stackCurve
+            .map((v, i) => `${toX(p.stackCurveHands[i] ?? i)},${toY(v)}`)
+            .join(' ');
           const color = CHART_COLORS[idx % CHART_COLORS.length];
           return (
             <polyline

@@ -22,9 +22,15 @@ type ActionButtonsProps = {
   onSelect: (action: Action) => void;
 };
 
+// Tailwind は動的クラス生成不可のため、選択肢数ごとに固定クラス文字列を出し分ける。
+export function gridColsClass(optionCount: number): string {
+  return optionCount === 2 ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-3 gap-3';
+}
+
 export function ActionButtons({ options = DEFAULT_OPTIONS, selected, disabled, onSelect }: ActionButtonsProps) {
+  const gridClass = gridColsClass(options.length);
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className={gridClass}>
       {options.map((o) => {
         const isActive = selected === o.action;
         return (

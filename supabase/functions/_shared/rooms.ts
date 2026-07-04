@@ -11,6 +11,7 @@ import {
   setupHand,
   applyHandResult,
   markLeft,
+  markLeavingDuringHand,
   canContinue,
   addLatePlayer,
 } from './core/online/tournament.ts';
@@ -18,6 +19,7 @@ import type { TournamentConfig, TournamentConfigInput, TournamentState } from '.
 import { toPublicState } from './core/online/publicState.ts';
 import { progressToActionable } from './engine-driver.ts';
 import { cryptoRng } from './crypto-rng.ts';
+import { isValidBetAmount, resolveLeaveDuringHand } from './roomsLogic.ts';
 
 export type OnlineErrorCode =
   | 'unauthorized'
@@ -29,6 +31,7 @@ export type OnlineErrorCode =
   | 'stale'
   | 'not_in_hand'
   | 'already_started'
+  | 'seat_conflict'
   | 'internal';
 
 export class OnlineError extends Error {
@@ -44,6 +47,21 @@ type EngineState = { tournament: TournamentState; hand: GameState | null };
 
 function dbError(error: { message: string } | null): void {
   if (error) throw new OnlineError('internal', error.message);
+}
+
+/**
+ * next_hand / claim_timeout はルームメンバーシップを検証していなかった(ON-7)。
+ * 認証済みなら roomId(UUID)を知っている第三者でも呼べてしまう認可漏れを塞ぐ。
+ */
+async function assertRoomMember(db: SupabaseClient, roomId: string, uid: string): Promise<void> {
+  const { data, error } = await db
+    .from('room_players')
+    .select('uid')
+    .eq('room_id', roomId)
+    .eq('uid', uid)
+    .maybeSingle();
+  dbError(error);
+  if (!data) throw new OnlineError('unauthorized');
 }
 
 // ============================================================
@@ -91,9 +109,10 @@ export async function createRoom(
   const builtConfig = buildTournamentConfig(config ?? {});
 
   // ベストエフォートで24時間以上前の放置部屋を掃除する。失敗しても部屋作成は続行する。
+  // status を lobby/finished に限定し、進行中(playing)の対戦を誤って削除しない(ON-6)。
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    await db.from('rooms').delete().lt('created_at', cutoff);
+    await db.from('rooms').delete().lt('created_at', cutoff).in('status', ['lobby', 'finished']);
   } catch {
     // best effort — a stuck cleanup must never block room creation.
   }
@@ -135,16 +154,16 @@ export async function createRoom(
 // join_room
 // ============================================================
 
-async function joinLobbyRoom(
-  db: SupabaseClient,
-  room: { id: string },
-  uid: string,
-  displayName: string,
-): Promise<{ roomId: string; seat: number }> {
+// postgres の unique_violation (23505)。座席 select と insert の間の TOCTOU 競合検出用(ON-8)。
+function isUniqueViolation(error: { code?: string; message: string } | null): boolean {
+  return !!error && (error.code === '23505' || /duplicate key/i.test(error.message));
+}
+
+async function pickOpenSeat(db: SupabaseClient, roomId: string): Promise<number> {
   const { data: players, error: playersErr } = await db
     .from('room_players')
     .select('seat')
-    .eq('room_id', room.id);
+    .eq('room_id', roomId);
   dbError(playersErr);
 
   const used = new Set<number>((players ?? []).map((p: { seat: number }) => p.seat));
@@ -152,19 +171,37 @@ async function joinLobbyRoom(
 
   let seat = 0;
   while (used.has(seat)) seat++;
+  return seat;
+}
 
-  const { error: insertErr } = await db.from('room_players').insert({
-    room_id: room.id,
-    uid,
-    seat,
-    display_name: displayName,
-    connected: true,
-    stack: 0,
-    status: 'playing',
-  });
-  dbError(insertErr);
+async function joinLobbyRoom(
+  db: SupabaseClient,
+  room: { id: string },
+  uid: string,
+  displayName: string,
+): Promise<{ roomId: string; seat: number }> {
+  const MAX_RETRIES = 1;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const seat = await pickOpenSeat(db, room.id);
 
-  return { roomId: room.id, seat };
+    const { error: insertErr } = await db.from('room_players').insert({
+      room_id: room.id,
+      uid,
+      seat,
+      display_name: displayName,
+      connected: true,
+      stack: 0,
+      status: 'playing',
+    });
+    if (!insertErr) return { roomId: room.id, seat };
+    if (isUniqueViolation(insertErr)) {
+      // 同時参加で座席が埋まった: リトライ枠が残っていれば座席を選び直す。
+      if (attempt < MAX_RETRIES) continue;
+      throw new OnlineError('seat_conflict');
+    }
+    dbError(insertErr);
+  }
+  throw new OnlineError('seat_conflict');
 }
 
 /**
@@ -190,28 +227,28 @@ async function joinPlayingRoom(
   const { tournament }: EngineState = engineRow.state;
   if (tournament.status !== 'playing') throw new OnlineError('already_started');
 
-  const { data: players, error: playersErr } = await db
-    .from('room_players')
-    .select('seat')
-    .eq('room_id', room.id);
-  dbError(playersErr);
+  // 座席 select と insert の間の TOCTOU 競合(ON-8): 一意制約違反時に1回だけ座席を選び直す。
+  const SEAT_MAX_RETRIES = 1;
+  let seat = -1;
+  for (let attempt = 0; attempt <= SEAT_MAX_RETRIES; attempt++) {
+    seat = await pickOpenSeat(db, room.id);
 
-  const used = new Set<number>((players ?? []).map((p: { seat: number }) => p.seat));
-  if (used.size >= 6) throw new OnlineError('room_full');
-
-  let seat = 0;
-  while (used.has(seat)) seat++;
-
-  const { error: insertErr } = await db.from('room_players').insert({
-    room_id: room.id,
-    uid,
-    seat,
-    display_name: displayName,
-    connected: true,
-    stack: tournament.config.startingStack,
-    status: 'playing',
-  });
-  dbError(insertErr);
+    const { error: insertErr } = await db.from('room_players').insert({
+      room_id: room.id,
+      uid,
+      seat,
+      display_name: displayName,
+      connected: true,
+      stack: tournament.config.startingStack,
+      status: 'playing',
+    });
+    if (!insertErr) break;
+    if (isUniqueViolation(insertErr)) {
+      if (attempt < SEAT_MAX_RETRIES) continue;
+      throw new OnlineError('seat_conflict');
+    }
+    dbError(insertErr);
+  }
 
   const entry = { uid, displayName, seat };
 
@@ -353,26 +390,25 @@ export async function leaveRoom(db: SupabaseClient, uid: string, roomId: string)
   const { tournament, hand }: EngineState = engineRow.state;
   const seatUids: string[] = engineRow.seat_uids;
 
-  let currentHand = hand;
-  if (currentHand) {
-    const seatIndex = seatUids.indexOf(uid);
-    if (seatIndex !== -1 && currentHand.toAct === seatIndex && currentHand.players[seatIndex].status === 'active') {
-      // 離脱者がまさに手番だった場合、先に強制アクションを適用してからトーナメントに反映する
-      // （claim_timeout と同じ「これ以上先に進めない」を解消するロジック）。
-      const legal = legalActions(currentHand, seatIndex);
-      const forced = applyAction(currentHand, seatIndex, legal.canCheck ? { type: 'check' } : { type: 'fold' });
-      currentHand = progressToActionable(forced);
-    }
-  }
+  // ハンド中の離脱は手番かどうかに関わらず engine 席を処理する(ON-2): active なら強制 fold、
+  // allin はハンド確定まで順位/stack の確定を保留する(pendingLeave)。詳細は roomsLogic.ts 参照。
+  const { hand: foldedHand, pendingLeave } = resolveLeaveDuringHand(hand, seatUids, uid);
+  const currentHand = foldedHand ? progressToActionable(foldedHand) : null;
 
-  const newTournament = markLeft(tournament, uid);
+  const newTournament = pendingLeave ? markLeavingDuringHand(tournament, uid) : markLeft(tournament, uid);
 
   await persistHandTransition(db, roomId, newTournament, currentHand, seatUids, engineRow.version);
 
   const finalPlayer = newTournament.players.find((p) => p.uid === uid);
+  // pendingLeave 中は tournament 側がまだ 'playing' のまま(結果未確定)なので room_players の
+  // status/stack/finish_rank は persistHandTransition の同期ループに委ね、ここでは connected だけ落とす。
   const { error: updatePlayerErr } = await db
     .from('room_players')
-    .update({ status: 'left', connected: false, stack: 0, finish_rank: finalPlayer?.finishRank ?? null })
+    .update(
+      pendingLeave
+        ? { connected: false }
+        : { status: 'left', connected: false, stack: 0, finish_rank: finalPlayer?.finishRank ?? null },
+    )
     .eq('room_id', roomId)
     .eq('uid', uid);
   dbError(updatePlayerErr);
@@ -465,6 +501,9 @@ export async function playerAction(
     // allin: 専用の legal フラグは無い。手番であること自体が active であることを保証している。
     move.type === 'allin';
   if (!permitted) throw new OnlineError('illegal_action');
+  // bet/raise の amount を legal.minBetTo〜maxBetTo で検証する(ON-1)。範囲外・非有限数(NaN/
+  // Infinity/負数)を弾かないと applyAction の Math.min クランプ経由でスタック増加/pot破綻が起きる。
+  if (!isValidBetAmount(move, legal)) throw new OnlineError('illegal_action');
 
   let newHand = applyAction(hand, seatIndex, move);
   newHand = progressToActionable(newHand);
@@ -477,6 +516,8 @@ export async function playerAction(
 // ============================================================
 
 export async function nextHand(db: SupabaseClient, uid: string, roomId: string): Promise<{ version: number }> {
+  await assertRoomMember(db, roomId, uid);
+
   const { data: stateRow, error: stateErr } = await db
     .from('room_states')
     .select('*')
@@ -511,11 +552,13 @@ export async function nextHand(db: SupabaseClient, uid: string, roomId: string):
 
 export async function claimTimeout(
   db: SupabaseClient,
-  _uid: string,
+  uid: string,
   roomId: string,
   expectedVersion: number,
   targetUid: string,
 ): Promise<{ version: number }> {
+  await assertRoomMember(db, roomId, uid);
+
   const { data: stateRow, error: stateErr } = await db
     .from('room_states')
     .select('*')

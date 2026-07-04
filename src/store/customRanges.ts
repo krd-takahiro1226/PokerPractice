@@ -37,10 +37,10 @@ export const useCustomRanges = create<CustomRangesState>()((set, get) => ({
     if (uid) {
       upsertCustomRange(uid, key, range).catch(() => {});
     } else {
+      // read-modify-write で port.load() を経由すると連続保存で古い内容が後勝ちしうるため、
+      // set() 済みの最新 in-memory state をそのまま保存する。
       const port = localPort<CustomRanges>(STORAGE_KEY, {});
-      port.load().then((existing) => {
-        port.save({ ...existing, [key]: range }).catch(() => {});
-      });
+      port.save(get().ranges).catch(() => {});
     }
   },
 
@@ -55,11 +55,7 @@ export const useCustomRanges = create<CustomRangesState>()((set, get) => ({
       deleteCustomRange(uid, key).catch(() => {});
     } else {
       const port = localPort<CustomRanges>(STORAGE_KEY, {});
-      port.load().then((existing) => {
-        const next = { ...existing };
-        delete next[key];
-        port.save(next).catch(() => {});
-      });
+      port.save(get().ranges).catch(() => {});
     }
   },
 

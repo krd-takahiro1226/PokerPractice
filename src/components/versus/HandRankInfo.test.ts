@@ -49,4 +49,23 @@ describe('handRankSummary', () => {
     expect(summary.detailLabel).toBeNull();
     expect(summary.filledBars).toBeGreaterThanOrEqual(4);
   });
+
+  it('ボードペア由来のトリップスは「スリーカード」と表示され「ツーペア」と矛盾しない (UI-3)', () => {
+    // ボードの 9-9 ペア + ヒーローの片方の9でトリップス（セットではない）
+    const summary = handRankSummary(
+      ['9s', '2h'] as [Card, Card],
+      ['9d', '9c', '3h'] as Card[],
+    );
+    expect(summary.categoryName).toBe('スリーカード');
+    expect(summary.detailLabel).not.toBe('ツーペア');
+  });
+
+  it('ポケットペアがボードにヒットしたセットは「セット」の詳細ラベルが付く', () => {
+    const summary = handRankSummary(
+      ['7s', '7h'] as [Card, Card],
+      ['7d', '2c', '9h'] as Card[],
+    );
+    expect(summary.categoryName).toBe('スリーカード');
+    expect(summary.detailLabel).toBe('セット');
+  });
 });

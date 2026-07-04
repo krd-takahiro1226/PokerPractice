@@ -30,10 +30,10 @@ export const useBookmarks = create<BookmarksState>()((set, get) => ({
       if (uid) {
         deleteBookmark(uid, problemKey).catch(() => {});
       } else {
+        // read-modify-write で port.load() を経由すると連続クリックで古い内容が後勝ちしうるため、
+        // set() 済みの最新 in-memory state をそのまま保存する。
         const port = localPort<BookmarkItem[]>(STORAGE_KEY, []);
-        port.load().then((items) => {
-          port.save(items.filter((i) => i.problemKey !== problemKey)).catch(() => {});
-        });
+        port.save(get().items).catch(() => {});
       }
     } else {
       const item: BookmarkItem = { problemKey, note, createdAt: Date.now() };
@@ -43,9 +43,7 @@ export const useBookmarks = create<BookmarksState>()((set, get) => ({
         insertBookmark(uid, item).catch(() => {});
       } else {
         const port = localPort<BookmarkItem[]>(STORAGE_KEY, []);
-        port.load().then((existing) => {
-          port.save([...existing, item]).catch(() => {});
-        });
+        port.save(get().items).catch(() => {});
       }
     }
   },

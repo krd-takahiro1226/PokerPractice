@@ -22,6 +22,14 @@ export type OnlinePlayer = {
   // startTournament initializes to [startingStack]; applyHandResult appends this hand's
   // post-hand stack for every participant (winners and newly-busted alike).
   stackCurve: number[];
+  // stackCurve と同じ長さの並行配列。各エントリが記録された時点の絶対ハンド番号(0=開始時点)。
+  // 途中参加者は stackCurve が短い(参加時点から始まる)ため、グラフ側がインデックスではなく
+  // この絶対ハンド番号でX軸を取ることで参加タイミングのズレを防ぐ(ON-9)。
+  stackCurveHands: number[];
+  // true の間、このプレイヤーはハンド中に allin のまま leave_room した状態(ON-2)。
+  // 結果未確定のため status はまだ 'playing' のまま。applyHandResult がハンド確定時に
+  // markLeft 相当の処理で 'left' に確定させる。
+  pendingLeave?: boolean;
 };
 
 export type TournamentState = {
@@ -56,6 +64,7 @@ export function startTournament(
       finishRank: null,
       bustedHand: null,
       stackCurve: [config.startingStack],
+      stackCurveHands: [0],
     }));
 
   return {
@@ -127,7 +136,12 @@ export function applyHandResult(
     // ここで ended の値を書き戻すと「バスト後は積まない」規則が破れるため playing のみ反映する。
     if (idx < 0 || p.status !== 'playing') return p;
     const newStack = ended.players[idx].stack;
-    return { ...p, stack: newStack, stackCurve: [...p.stackCurve, newStack] };
+    return {
+      ...p,
+      stack: newStack,
+      stackCurve: [...p.stackCurve, newStack],
+      stackCurveHands: [...p.stackCurveHands, handNumber],
+    };
   });
 
   // 今ハンドで飛んだ(bust)プレイヤーを検出
@@ -193,7 +207,7 @@ export function applyHandResult(
     winnerUid = null;
   }
 
-  return {
+  const resolved: TournamentState = {
     ...t,
     players,
     handNumber,
@@ -202,6 +216,13 @@ export function applyHandResult(
     status,
     winnerUid,
   };
+
+  // このハンドでバストしなかった pendingLeave プレイヤー(allin中に leave_room した離脱者)は、
+  // 結果が確定したのでここで markLeft 相当の処理に確定させる(ON-2)。複数いる場合は reduce で
+  // 順に確定させる(markLeft は都度その時点の生存者数を見て finishRank/button/優勝判定を行うため
+  // 連鎖的に正しく処理される)。
+  const pendingLeavers = players.filter((p) => p.status === 'playing' && p.pendingLeave);
+  return pendingLeavers.reduce((acc, p) => markLeft(acc, p.uid), resolved);
 }
 
 export function markLeft(t: TournamentState, uid: string): TournamentState {
@@ -219,8 +240,10 @@ export function markLeft(t: TournamentState, uid: string): TournamentState {
           status: 'left' as const,
           stack: 0,
           stackCurve: [...p.stackCurve, 0],
+          stackCurveHands: [...p.stackCurveHands, t.handNumber],
           finishRank,
           bustedHand: t.handNumber,
+          pendingLeave: false,
         }
       : p,
   );
@@ -255,6 +278,19 @@ export function markLeft(t: TournamentState, uid: string): TournamentState {
   };
 }
 
+/**
+ * ハンド中に allin のまま leave_room したプレイヤーに pendingLeave フラグを立てる(ON-2)。
+ * まだ勝つ可能性が残っている(結果未確定)ため status は 'playing' のまま変えず、
+ * finishRank/stack の確定はハンドが終わった時点の applyHandResult に委ねる。
+ * 対象が見つからない・既に playing でない・既にフラグ済みなら t をそのまま返す(冪等)。
+ */
+export function markLeavingDuringHand(t: TournamentState, uid: string): TournamentState {
+  const player = t.players.find((p) => p.uid === uid);
+  if (!player || player.status !== 'playing' || player.pendingLeave) return t;
+  const players = t.players.map((p) => (p.uid === uid ? { ...p, pendingLeave: true } : p));
+  return { ...t, players };
+}
+
 /** 進行中トーナメントへの途中参加。次の setupHand から配牌に加わる。
  *  status!=='playing'、既存uid、または満席(players 6人以上)なら変更せず t を返す。 */
 export function addLatePlayer(
@@ -273,6 +309,7 @@ export function addLatePlayer(
     finishRank: null,
     bustedHand: null,
     stackCurve: [t.config.startingStack],
+    stackCurveHands: [t.handNumber],
   };
   // players は seat 昇順を維持する
   const players = [...t.players, player].sort((a, b) => a.seat - b.seat);

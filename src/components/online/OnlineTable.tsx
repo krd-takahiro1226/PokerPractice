@@ -13,6 +13,7 @@ import { useDisplayPrefs } from '../../store/displayPrefs';
 import { formatAmount } from '../../lib/chips';
 import type { ChipDisplay } from '../../lib/chips';
 import { seatActionBadges, actionBadgeLabel } from '../../lib/onlineBadges';
+import { OnlineClientError } from '../../lib/onlineClient';
 import { OnlineTablePanels } from './OnlineTablePanels';
 import type { PublicGameState, PublicPlayer } from '../../core/online/types';
 import type { LegalActions } from '../../core/game/engine';
@@ -21,6 +22,26 @@ import type { Card } from '../../core/cards';
 import type { RoomPhase, ReactionEvent, HandHistoryEntry } from '../../store/online';
 import type { TournamentState } from '../../core/online/tournament';
 
+// アクション送信失敗(stale/illegal_action/not_your_turn等)が無言で握りつぶされないよう、
+// 押した本人向けの簡易メッセージにマップする(ON-4)。
+function mapActionError(e: unknown): string {
+  if (e instanceof OnlineClientError) {
+    switch (e.code) {
+      case 'not_your_turn':
+        return '手番が変わりました';
+      case 'illegal_action':
+        return '選択できない操作です';
+      case 'stale':
+        return '状況が更新されました。もう一度お試しください';
+      case 'not_in_hand':
+        return 'このハンドはすでに終了しています';
+      default:
+        return '操作に失敗しました。もう一度お試しください';
+    }
+  }
+  return '操作に失敗しました。もう一度お試しください';
+}
+
 type OnlineTableProps = {
   publicState: PublicGameState;
   myHole: [Card, Card] | null;
@@ -28,7 +49,7 @@ type OnlineTableProps = {
   isMyTurn: boolean;
   legal: LegalActions | null;
   deadlineMs: number | null;
-  onAction: (move: PlayerAction) => void;
+  onAction: (move: PlayerAction) => void | Promise<void>;
   onSendReaction: (emoji: string) => void;
   reactions: ReactionEvent[];
   onExpireReaction: (id: string) => void;
@@ -122,6 +143,27 @@ export function OnlineTable({
 
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
+
+  // onAction(act)の失敗が無言で握りつぶされないよう、ここで catch してインライン表示する(ON-4)。
+  const [actionError, setActionError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!actionError) return;
+    const timer = setTimeout(() => setActionError(null), 4_000);
+    return () => clearTimeout(timer);
+  }, [actionError]);
+  // 自分の手番でなくなったら(相手が先に操作した等)古いエラーは表示し続けない。
+  useEffect(() => {
+    if (!isMyTurn) setActionError(null);
+  }, [isMyTurn]);
+
+  const handleAction = async (move: PlayerAction) => {
+    setActionError(null);
+    try {
+      await onAction(move);
+    } catch (e) {
+      setActionError(mapActionError(e));
+    }
+  };
 
   const handleConfirmLeave = async () => {
     setLeaveBusy(true);
@@ -280,7 +322,10 @@ export function OnlineTable({
         {isMyTurn && legal ? (
           <div className="flex flex-col gap-2">
             <ActionTimer deadlineMs={deadlineMs} className="mx-auto max-w-xs" />
-            <BetControls legal={legal} potForSizing={potForSizing} onAction={onAction} />
+            {actionError && (
+              <p className="mx-auto max-w-xs text-center text-xs text-danger">{actionError}</p>
+            )}
+            <BetControls legal={legal} potForSizing={potForSizing} onAction={handleAction} />
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-center">

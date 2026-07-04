@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { seatLabels, maxTierForSeats, maxTierForSeatsMode, playersBehind, getRfiScenariosForSeats } from './seats';
 import { getRfiScenarios } from './rfi';
 import { TIERS } from './yokosawa';
+import { maxTierFor } from './mode';
+import type { Position } from './types';
 
 describe('seatLabels', () => {
   it('seatLabels(6) = UTG,HJ,CO,BTN,SB,BB', () => {
@@ -45,6 +47,19 @@ describe('6max 整合: maxTierForSeats が BASE_MAX_TIER と一致', () => {
     expect(maxTierForSeats(playersBehind(6, 2))).toBe(6); // CO: b=3
     expect(maxTierForSeats(playersBehind(6, 3))).toBe(7); // BTN: b=2
     expect(maxTierForSeats(playersBehind(6, 4))).toBe(7); // SB: b=1
+  });
+
+  // mode.ts の BASE_MAX_TIER と seats.ts の maxTierForSeats は同じ数値を別々に定義しているため、
+  // 片方だけ将来修正されると 6-max で無言のままズレる。両者を直接クロスチェックする回帰テスト。
+  it('mode.ts の maxTierFor(tournament, pos) と maxTierForSeats(playersBehind(6,idx)) が全ポジションで一致する', () => {
+    const labels = seatLabels(6);
+    for (let idx = 0; idx < labels.length; idx++) {
+      const pos = labels[idx] as Position;
+      if (pos === 'BB') continue; // BB は RFI 対象外（両モジュールとも0/対象外扱い）
+      const fromSeats = maxTierForSeats(playersBehind(6, idx));
+      const fromMode = maxTierFor('tournament', pos);
+      expect(fromSeats).toBe(fromMode);
+    }
   });
 });
 

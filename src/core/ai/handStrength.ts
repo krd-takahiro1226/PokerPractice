@@ -3,7 +3,7 @@ import { rankValue, cardRank, cardSuit, type Card, type Rank } from '../cards';
 
 export type MadeClass =
   | 'air' | 'weak-pair' | 'mid-pair' | 'top-pair' | 'overpair'
-  | 'two-pair' | 'set' | 'straight' | 'flush' | 'full-plus';
+  | 'two-pair' | 'trips' | 'set' | 'straight' | 'flush' | 'full-plus';
 
 export type DrawClass = 'none' | 'gutshot' | 'oesd' | 'flush-draw' | 'combo-draw';
 
@@ -21,6 +21,7 @@ const MADE_SCORE: Record<MadeClass, number> = {
   'top-pair': 0.50,
   'overpair': 0.60,
   'two-pair': 0.70,
+  'trips': 0.70, // ボードペア由来のトリップス。AIの強さ判断への影響を避けるためtwo-pairと同スコア
   'set': 0.80,
   'straight': 0.85,
   'flush': 0.88,
@@ -67,7 +68,7 @@ function classifyMade(cat: number, hole: [Card, Card], board: Card[]): MadeClass
     case CATEGORY.STRAIGHT:
       return 'straight';
     case CATEGORY.TRIPS:
-      return isSet(hole, board) ? 'set' : 'two-pair'; // trips from board → two-pair相当
+      return isSet(hole, board) ? 'set' : 'trips'; // ボードペア由来のトリップス
     case CATEGORY.TWO_PAIR:
       return 'two-pair';
     case CATEGORY.PAIR:
@@ -141,12 +142,18 @@ function detectFlushDraw(hole: [Card, Card], board: Card[]): boolean {
 }
 
 function detectStraightDraw(hole: [Card, Card], board: Card[]): DrawClass {
-  const allRanks = [...hole, ...board].map((c) => rankValue(cardRank(c)));
+  const holeRankValues = hole.map((c) => rankValue(cardRank(c)));
+  const holeRankSet = new Set(holeRankValues);
+  if (holeRankSet.has(12)) holeRankSet.add(-1); // A-low
+
+  const boardRankValues = board.map((c) => rankValue(cardRank(c)));
+  const boardRankSet = new Set(boardRankValues);
+  if (boardRankSet.has(12)) boardRankSet.add(-1); // A-low
+
+  const allRanks = [...holeRankValues, ...boardRankValues];
   // Ace可低（A=0相当）
   const rankSet = new Set(allRanks);
   if (rankSet.has(12)) rankSet.add(-1); // A-low
-
-  const sorted = [...rankSet].sort((a, b) => a - b);
 
   let maxOesd = 0;
   let maxGutshot = 0;
@@ -156,6 +163,23 @@ function detectStraightDraw(hole: [Card, Card], board: Card[]): DrawClass {
     const window = [low, low+1, low+2, low+3, low+4];
     const hits = window.filter((r) => rankSet.has(r)).length;
     const gaps = window.filter((r) => !rankSet.has(r)).length;
+    if (hits !== 4) continue;
+
+    // ホールカードが窓内のヒットに一切寄与していなければ、ボード単独のテクスチャなので
+    // hero のドローとしては数えない（例: ボードだけで4連番のテクスチャがあるケース）
+    const holeContributes = window.some((r) => holeRankSet.has(r) && !boardRankSet.has(r));
+    if (!holeContributes) continue;
+
+    // 欠けたランクがボードだけでも別の5連番を完成させるなら、実際に成立する役はボード側で
+    // 決まりヒーローの手は無関係（例: ボード4-5-6-7に3が来ると3-4-5-6-7が完成し、
+    // ヒーローの2は使われない）ため、これもドローとして数えない
+    const missing = window.find((r) => !rankSet.has(r));
+    if (missing !== undefined) {
+      const boardWithMissing = new Set(boardRankSet);
+      boardWithMissing.add(missing);
+      if (hasConsecutiveRun(boardWithMissing)) continue;
+    }
+
     if (hits === 4 && gaps === 1) maxOesd = Math.max(maxOesd, hits);
     if (hits === 4) {
       // OESDかガットショットか判断
@@ -170,6 +194,18 @@ function detectStraightDraw(hole: [Card, Card], board: Card[]): DrawClass {
   if (maxOesd >= 4) return 'oesd';
   if (maxGutshot >= 4) return 'gutshot';
   return 'none';
+}
+
+/** ランク集合内に5個連続する値が含まれるか（A-lowは呼び出し側で-1として追加済み前提）。 */
+function hasConsecutiveRun(ranks: Set<number>): boolean {
+  for (const v of ranks) {
+    let ok = true;
+    for (let k = 1; k < 5; k++) {
+      if (!ranks.has(v + k)) { ok = false; break; }
+    }
+    if (ok) return true;
+  }
+  return false;
 }
 
 /** プリフロップ用の簡易スコア（0..1）。ポケットペア・スーテッド・ブロードウェイなどを考慮。 */

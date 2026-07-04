@@ -228,7 +228,10 @@ export function legalActions(state: GameState, playerId: number): LegalActions {
   // bet: currentBet=0 の場合のみ
   const canBet = state.currentBet === 0 && player.stack > 0;
   // raise: currentBet>0 かつ、自分がall-inでない
-  const canRaise = state.currentBet > 0 && player.stack > callAmount;
+  // hasActedThisStreet が true のまま手番が来るのは最小レイズ未満のショートオールインに
+  // 直面した場合のみ（フルレイズならフラグがリセットされる）。この場合コール/フォールドのみ
+  const canRaise =
+    state.currentBet > 0 && player.stack > callAmount && !player.hasActedThisStreet;
 
   // min bet: bb以上
   // min raise: currentBet + minRaise（total-commit目標額）
@@ -315,8 +318,9 @@ export function applyAction(
       if (currentBet !== 0) {
         throw new Error(`Cannot bet: currentBet=${currentBet} (use raise)`);
       }
-      const betTo = action.amount ?? state.config.bb;
-      const additional = Math.min(betTo - p.committedStreet, p.stack);
+      // amount が非有限数（NaN/Infinity等）や不正値でも additional が負にならないよう防御する
+      const betTo = Number.isFinite(action.amount) ? (action.amount as number) : state.config.bb;
+      const additional = Math.max(0, Math.min(betTo - p.committedStreet, p.stack));
       const newCommit = p.committedStreet + additional;
       minRaise = newCommit - currentBet;
       currentBet = newCommit;
@@ -339,8 +343,9 @@ export function applyAction(
       if (currentBet === 0) {
         throw new Error('Cannot raise: currentBet=0 (use bet)');
       }
-      const raiseTo = action.amount ?? (currentBet + minRaise);
-      const additional = Math.min(raiseTo - p.committedStreet, p.stack);
+      // amount が非有限数（NaN/Infinity等）や不正値でも additional が負にならないよう防御する
+      const raiseTo = Number.isFinite(action.amount) ? (action.amount as number) : (currentBet + minRaise);
+      const additional = Math.max(0, Math.min(raiseTo - p.committedStreet, p.stack));
       const newCommit = p.committedStreet + additional;
       // minRaiseはレイズの増分
       minRaise = Math.max(minRaise, newCommit - currentBet);
@@ -365,13 +370,19 @@ export function applyAction(
       const newCommit = p.committedStreet + additional;
       if (newCommit > currentBet) {
         // raise/bet 相当
-        minRaise = Math.max(minRaise, newCommit - currentBet);
+        const raiseIncrement = newCommit - currentBet;
+        // 最小レイズ以上のフルレイズ相当か（NLHルール: 最小レイズ未満のショートオールインは
+        // レイズ権を再オープンしない。既にアクション済みのプレイヤーはコール/フォールドのみ）
+        const isFullRaise = raiseIncrement >= minRaise;
+        minRaise = Math.max(minRaise, raiseIncrement);
         currentBet = newCommit;
         lastAggressor = playerId;
-        // 他のactiveプレイヤーのhasActedThisStreetをリセット
-        for (const other of players) {
-          if (other.id !== playerId && other.status === 'active') {
-            other.hasActedThisStreet = false;
+        if (isFullRaise) {
+          // 他のactiveプレイヤーのhasActedThisStreetをリセット
+          for (const other of players) {
+            if (other.id !== playerId && other.status === 'active') {
+              other.hasActedThisStreet = false;
+            }
           }
         }
       }

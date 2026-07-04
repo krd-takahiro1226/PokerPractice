@@ -5,6 +5,7 @@ import {
   setupHand,
   applyHandResult,
   markLeft,
+  markLeavingDuringHand,
   canContinue,
   standings,
   addLatePlayer,
@@ -51,6 +52,9 @@ describe('startTournament', () => {
     expect(t.players.every((p) => p.stack === 100)).toBe(true);
     expect(t.players.every((p) => p.status === 'playing')).toBe(true);
     expect(t.players.every((p) => p.stackCurve.length === 1 && p.stackCurve[0] === 100)).toBe(
+      true,
+    );
+    expect(t.players.every((p) => p.stackCurveHands.length === 1 && p.stackCurveHands[0] === 0)).toBe(
       true,
     );
     expect(t.buttonUid).toBe('p0');
@@ -120,6 +124,8 @@ describe('applyHandResult', () => {
     expect(byUid.p1.stack).toBe(130);
     expect(byUid.p0.stackCurve).toEqual([100, 70]);
     expect(byUid.p1.stackCurve).toEqual([100, 130]);
+    expect(byUid.p0.stackCurveHands).toEqual([0, 1]);
+    expect(byUid.p1.stackCurveHands).toEqual([0, 1]);
     // button (p0, seat0) の次の生存者 = p1 (seat1)
     expect(next.buttonUid).toBe('p1');
   });
@@ -345,6 +351,95 @@ describe('markLeft', () => {
     // playing の2人は通常どおり反映される
     expect(after.players.find((p) => p.uid === 'p0')!.stackCurve).toEqual([100, 120]);
     expect(after.players.find((p) => p.uid === 'p2')!.stackCurve).toEqual([100, 140]);
+  });
+});
+
+// ─── markLeavingDuringHand / pendingLeave finalization (ON-2) ───────────────
+
+describe('markLeavingDuringHand', () => {
+  it('status は playing のまま pendingLeave=true を立てる', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    const next = markLeavingDuringHand(t, 'p1');
+    const p1 = next.players.find((p) => p.uid === 'p1')!;
+    expect(p1.status).toBe('playing');
+    expect(p1.pendingLeave).toBe(true);
+    expect(p1.stack).toBe(100);
+    expect(p1.finishRank).toBeNull();
+  });
+
+  it('既にフラグ済みへの再呼び出しは同じ参照を返す(冪等性)', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    const once = markLeavingDuringHand(t, 'p1');
+    const twice = markLeavingDuringHand(once, 'p1');
+    expect(twice).toBe(once);
+  });
+
+  it('存在しないuid、または既に left/busted のプレイヤーには no-op', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    expect(markLeavingDuringHand(t, 'no-such-uid')).toBe(t);
+    const left = markLeft(t, 'p2');
+    expect(markLeavingDuringHand(left, 'p2')).toBe(left);
+  });
+
+  it('ハンド確定時にバストしなければ applyHandResult が markLeft 相当で left に確定する', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    const flagged = markLeavingDuringHand(t, 'p1');
+    const setup = setupHand(flagged); // uids = [p0, p1, p2, p3]
+    // 誰もバストしない(全員 stack>0 のまま)ハンド結果
+    const ended = makeEnded([100, 100, 100, 100]);
+    const next = applyHandResult(flagged, ended, setup.uids);
+
+    const p1 = next.players.find((p) => p.uid === 'p1')!;
+    expect(p1.status).toBe('left');
+    expect(p1.stack).toBe(0);
+    expect(p1.pendingLeave).toBe(false);
+    // stackCurve: 開始100 → ハンド中の値100(このハンドの結果反映) → 0(離脱確定)
+    expect(p1.stackCurve).toEqual([100, 100, 0]);
+    expect(p1.stackCurveHands).toEqual([0, 1, 1]);
+    // survivorsAfterThisHand(このハンドでバスト0人、p1除いた3人) + 1 = 4(最下位)
+    expect(p1.finishRank).toBe(4);
+
+    // 他のプレイヤーは通常どおり playing のまま
+    expect(next.players.find((p) => p.uid === 'p0')!.status).toBe('playing');
+  });
+
+  it('ハンド確定時にバストした場合は通常の busted 処理が優先され、markLeft は適用されない', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    const flagged = markLeavingDuringHand(t, 'p1');
+    const setup = setupHand(flagged);
+    // p1 がバスト
+    const ended = makeEnded([120, 0, 100, 80]);
+    const next = applyHandResult(flagged, ended, setup.uids);
+
+    const p1 = next.players.find((p) => p.uid === 'p1')!;
+    expect(p1.status).toBe('busted');
+    expect(p1.bustedHand).toBe(1);
+    // 4人中1人バスト: survivorsAfterThisHand = 4-0-1=3, rank=4(最下位)
+    expect(p1.finishRank).toBe(4);
+  });
+
+  it('leave(markLeftと同様)は離脱者自身のstackを没収するのみで、他プレイヤーの取り分は破損しない', () => {
+    // markLeft は通常の離脱でも stack を没収する既存仕様(既存テスト参照)。pendingLeave の確定も
+    // 同じ規則に従うため、合計チップは離脱者の没収分だけ減る。ここで壊れていないと保証したいのは
+    // 「他プレイヤーが ended の値どおり正しく反映される」こと(勝ち分が消失しない、ON-2 の本旨)。
+    const n = 4;
+    const t = startTournament(makeSeats(n), makeConfig());
+    const totalChips = n * t.config.startingStack;
+    const flagged = markLeavingDuringHand(t, 'p1');
+    const setup = setupHand(flagged);
+    // p1(pendingLeave) がこのハンドで勝って一時的にスタックを増やしたと仮定(合計400を保存)。
+    const ended = makeEnded([80, 220, 60, 40]);
+    const next = applyHandResult(flagged, ended, setup.uids);
+
+    const p1 = next.players.find((p) => p.uid === 'p1')!;
+    expect(p1.status).toBe('left');
+    expect(p1.stack).toBe(0); // 勝ち分含め没収(既存の leave 規則どおり)
+
+    // p1 以外は ended の値どおり正しく反映され、離脱による没収以外の損失は無い。
+    const others = next.players.filter((p) => p.uid !== 'p1');
+    expect(others.map((p) => p.stack).sort((a, b) => a - b)).toEqual([40, 60, 80]);
+    const sum = next.players.reduce((s, p) => s + p.stack, 0);
+    expect(sum).toBe(totalChips - 220); // p1 の没収分(このハンドの勝ち分含む)だけ減る
   });
 });
 

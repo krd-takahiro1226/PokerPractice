@@ -19,7 +19,7 @@ const MADE_LABEL: Partial<Record<MadeClass, string>> = {
   straight: 'ストレート',
   flush: 'フラッシュ',
   'full-plus': 'フルハウス以上',
-  // air は表示しない
+  // air と trips(ボードペア由来のスリーカード) は categoryName 側で十分表現できるため表示しない
 };
 
 const DRAW_LABEL: Partial<Record<DrawClass, string>> = {
