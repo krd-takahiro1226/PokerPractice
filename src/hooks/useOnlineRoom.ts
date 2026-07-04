@@ -38,6 +38,7 @@ import { canContinue } from '../core/online/tournament';
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const NEXT_HAND_DELAY_MS = 8_000;
 const REACTION_TTL_MS = 3_000;
+const LOBBY_RESYNC_INTERVAL_MS = 5_000;
 
 // ホストのロビー離脱で部屋が cascade delete された際(ON-5)、残った参加者のロビー画面に
 // 一度だけ「部屋が閉じられました」を表示するためのフラグ。sessionStorage 越しに渡すことで、
@@ -144,6 +145,31 @@ async function refetchPlayers(roomId: string): Promise<void> {
   if (data) useOnlineStore.getState().setPlayers(data);
 }
 
+// rooms / room_states / room_players をまとめて SELECT し store に反映する。enterRoom の初期同期に
+// 加え、Realtime イベント取りこぼし時の自己修復(ロビーの定期再同期・再購読直後・start_game 前後)
+// からも呼ばれる。返り値は現在の hand_number(enterRoom の hole 初期取得用)。
+async function syncRoomSnapshot(roomId: string): Promise<number> {
+  if (!supabase) return 0;
+  const [{ data: roomRow }, { data: stateRow }, { data: playersRows }] = await Promise.all([
+    supabase.from('rooms').select('*').eq('id', roomId).maybeSingle<RoomRow>(),
+    supabase.from('room_states').select('*').eq('room_id', roomId).maybeSingle<RoomStateRow>(),
+    supabase.from('room_players').select('*').eq('room_id', roomId).order('seat').returns<RoomPlayerRow[]>(),
+  ]);
+  const store = useOnlineStore.getState();
+  // SELECT 中に退出/リセットされていたら古い部屋の結果を書き込まない。
+  if (store.roomId !== roomId) return 0;
+  if (roomRow) {
+    store.setRoomStatus(roomRow.status);
+    store.setHostUid(roomRow.host_uid);
+    store.setRoomCode(roomRow.code);
+    store.setRoomConfig(roomRow.config as TournamentConfig);
+  }
+  // SELECT 中に Realtime でより新しい version が適用されていたら巻き戻さない。
+  if (stateRow && stateRow.version >= store.version) applyStateRow(stateRow);
+  if (playersRows) store.setPlayers(playersRows);
+  return stateRow?.hand_number ?? 0;
+}
+
 export function useOnlineRoom() {
   const store = useOnlineStore();
   // 毎レンダーで localStorage を読み直す(マウント時固定だと「退出」直後の再レンダーで
@@ -234,6 +260,8 @@ export function useOnlineRoom() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           useOnlineStore.getState().setConnectionStatus('connected');
+          // (再)購読が確立するまでの間のイベントは届かないため、確立のたびに全体を読み直す。
+          void syncRoomSnapshot(roomId);
         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           useOnlineStore.getState().setConnectionStatus('disconnected');
         }
@@ -241,22 +269,7 @@ export function useOnlineRoom() {
 
     channelRef.current = channel;
 
-    const [{ data: roomRow }, { data: stateRow }, { data: playersRows }] = await Promise.all([
-      supabase.from('rooms').select('*').eq('id', roomId).maybeSingle<RoomRow>(),
-      supabase.from('room_states').select('*').eq('room_id', roomId).maybeSingle<RoomStateRow>(),
-      supabase.from('room_players').select('*').eq('room_id', roomId).order('seat').returns<RoomPlayerRow[]>(),
-    ]);
-
-    if (roomRow) {
-      useOnlineStore.getState().setRoomStatus(roomRow.status);
-      useOnlineStore.getState().setHostUid(roomRow.host_uid);
-      useOnlineStore.getState().setRoomCode(roomRow.code);
-      useOnlineStore.getState().setRoomConfig(roomRow.config as TournamentConfig);
-    }
-    if (stateRow) applyStateRow(stateRow);
-    if (playersRows) useOnlineStore.getState().setPlayers(playersRows);
-
-    const handNumber = stateRow?.hand_number ?? 0;
+    const handNumber = await syncRoomSnapshot(roomId);
     if (handNumber > 0) {
       const { data: holeRows } = await supabase
         .from('room_hole_cards')
@@ -312,8 +325,21 @@ export function useOnlineRoom() {
   const startGame = useCallback(async () => {
     const roomId = useOnlineStore.getState().roomId;
     if (!roomId) throw new OnlineClientError('room_not_found', 'not in a room');
-    const { version } = await apiStartGame(roomId);
-    useOnlineStore.getState().setVersion(version);
+    try {
+      const { version } = await apiStartGame(roomId);
+      useOnlineStore.getState().setVersion(version);
+    } catch (e) {
+      // already_started はサーバーが「lobby 以外」で一律に返すため、Realtime 取りこぼしで
+      // 「開始成功済みなのにロビー画面のまま」再度押された場合もここに来る。実状態を読み直し、
+      // 実際に進行中ならエラー扱いにしない(store 反映でテーブル画面へ遷移する)。
+      if (e instanceof OnlineClientError && e.code === 'already_started') {
+        await syncRoomSnapshot(roomId);
+        if (useOnlineStore.getState().roomStatus === 'playing') return;
+      }
+      throw e;
+    }
+    // 成功時の画面遷移を Realtime の room_states イベントだけに依存させず即時同期する。
+    await syncRoomSnapshot(roomId);
   }, []);
 
   const act = useCallback(async (move: { type: PlayerActionType; amount?: number }) => {
@@ -368,6 +394,18 @@ export function useOnlineRoom() {
       heartbeatIntervalRef.current = null;
     };
   }, [roomId]);
+
+  // ロビー中の自己修復ポーリング: 参加者一覧と開始状態は Realtime 頼みだと、購読不良や
+  // イベント取りこぼし時にホスト画面へ参加者が永久に反映されない。ロビー表示中に限り
+  // 低頻度で全体を再同期する(ハンド中は stale 時の読み直し等の既存機構に任せる)。
+  const inLobby = store.roomStatus !== 'finished' && (store.phase === null || store.phase === 'idle');
+  useEffect(() => {
+    if (!roomId || !inLobby) return;
+    const interval = setInterval(() => {
+      void syncRoomSnapshot(roomId);
+    }, LOBBY_RESYNC_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [roomId, inLobby]);
 
   // Disconnect + reset on unmount (mirrors leaveRoom's cleanup).
   useEffect(() => {
