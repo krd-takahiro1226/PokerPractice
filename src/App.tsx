@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { Home } from './pages/Home';
+import { Guide } from './pages/Guide';
 import { RangeTrainer } from './pages/RangeTrainer';
 import { EquityCalc } from './pages/EquityCalc';
 import { PotOdds } from './pages/PotOdds';
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <Home /> },
+      { path: 'guide', element: <Guide /> },
       { path: 'range', element: <RangeTrainer /> },
       { path: 'equity', element: <EquityCalc /> },
       { path: 'pot-odds', element: <PotOdds /> },

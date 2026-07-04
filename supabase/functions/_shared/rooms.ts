@@ -12,6 +12,7 @@ import {
   applyHandResult,
   markLeft,
   canContinue,
+  addLatePlayer,
 } from './core/online/tournament.ts';
 import type { TournamentConfig, TournamentConfigInput, TournamentState } from './core/online/tournament.ts';
 import { toPublicState } from './core/online/publicState.ts';
@@ -134,32 +135,12 @@ export async function createRoom(
 // join_room
 // ============================================================
 
-export async function joinRoom(
+async function joinLobbyRoom(
   db: SupabaseClient,
+  room: { id: string },
   uid: string,
-  code: string,
   displayName: string,
 ): Promise<{ roomId: string; seat: number }> {
-  const { data: room, error: roomErr } = await db
-    .from('rooms')
-    .select('*')
-    .eq('code', (code ?? '').trim().toUpperCase())
-    .maybeSingle();
-  dbError(roomErr);
-  if (!room) throw new OnlineError('room_not_found');
-
-  const { data: existing, error: existingErr } = await db
-    .from('room_players')
-    .select('seat')
-    .eq('room_id', room.id)
-    .eq('uid', uid)
-    .maybeSingle();
-  dbError(existingErr);
-  // 再接続（既に着席済み）は部屋の状態に関わらず常に成功させる。
-  if (existing) return { roomId: room.id, seat: existing.seat };
-
-  if (room.status !== 'lobby') throw new OnlineError('already_started');
-
   const { data: players, error: playersErr } = await db
     .from('room_players')
     .select('seat')
@@ -184,6 +165,140 @@ export async function joinRoom(
   dbError(insertErr);
 
   return { roomId: room.id, seat };
+}
+
+/**
+ * ゲーム進行中の部屋への途中参加(docs/ONLINE-VERSUS.md 途中参加節)。
+ * 新規プレイヤーは初期スタックを持ち、addLatePlayer で tournament.players に加えるだけで
+ * 次の setupHand から自動的に配牌される。進行中ハンドの座席(room_engine.seat_uids)は
+ * 変更しない。room_engine は楽観ロック更新で、version 競合時は最大2回まで読み直してリトライする。
+ */
+async function joinPlayingRoom(
+  db: SupabaseClient,
+  room: { id: string },
+  uid: string,
+  displayName: string,
+): Promise<{ roomId: string; seat: number }> {
+  const { data: engineRow, error: engineErr } = await db
+    .from('room_engine')
+    .select('*')
+    .eq('room_id', room.id)
+    .maybeSingle();
+  dbError(engineErr);
+  if (!engineRow) throw new OnlineError('already_started');
+
+  const { tournament }: EngineState = engineRow.state;
+  if (tournament.status !== 'playing') throw new OnlineError('already_started');
+
+  const { data: players, error: playersErr } = await db
+    .from('room_players')
+    .select('seat')
+    .eq('room_id', room.id);
+  dbError(playersErr);
+
+  const used = new Set<number>((players ?? []).map((p: { seat: number }) => p.seat));
+  if (used.size >= 6) throw new OnlineError('room_full');
+
+  let seat = 0;
+  while (used.has(seat)) seat++;
+
+  const { error: insertErr } = await db.from('room_players').insert({
+    room_id: room.id,
+    uid,
+    seat,
+    display_name: displayName,
+    connected: true,
+    stack: tournament.config.startingStack,
+    status: 'playing',
+  });
+  dbError(insertErr);
+
+  const entry = { uid, displayName, seat };
+
+  try {
+    const MAX_RETRIES = 2;
+    let currentEngineRow = engineRow;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const { tournament: currentTournament, hand: currentHand }: EngineState = currentEngineRow.state;
+      // リトライの読み直しでトーナメントが終わっていたらここで打ち切る。addLatePlayer は
+      // no-op で「成功」してしまい、tournament に居ない参加者を作ってしまうため。
+      if (currentTournament.status !== 'playing') throw new OnlineError('already_started');
+      const newTournament = addLatePlayer(currentTournament, entry);
+      const newVersion = currentEngineRow.version + 1;
+
+      const { data: updated, error: updateErr } = await db
+        .from('room_engine')
+        .update({
+          version: newVersion,
+          state: { tournament: newTournament, hand: currentHand },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('room_id', room.id)
+        .eq('version', currentEngineRow.version)
+        .select();
+      dbError(updateErr);
+
+      if (updated && updated.length > 0) {
+        // phase / public / action_deadline / hand_number は据え置き(進行中ハンドの表示を壊さないため)。
+        // これにより並行中の player_action が version 不一致で 'stale' になり得るが、クライアントは
+        // realtime で自己修復する設計(useOnlineRoom.ts の act コメント参照)なので許容する。
+        const { error: statesErr } = await db
+          .from('room_states')
+          .update({ version: newVersion, tournament: newTournament, updated_at: new Date().toISOString() })
+          .eq('room_id', room.id);
+        dbError(statesErr);
+
+        return { roomId: room.id, seat };
+      }
+
+      if (attempt === MAX_RETRIES) break;
+
+      const { data: refetched, error: refetchErr } = await db
+        .from('room_engine')
+        .select('*')
+        .eq('room_id', room.id)
+        .maybeSingle();
+      dbError(refetchErr);
+      if (!refetched) throw new OnlineError('stale');
+      currentEngineRow = refetched;
+    }
+
+    throw new OnlineError('stale');
+  } catch (e) {
+    // tournament への追加が確定しなかった場合、insert 済みの room_players 行を残さない。
+    // 残すと次回 join_room が「再接続」扱いで成功し、tournament に居ないまま入室できてしまう。
+    await db.from('room_players').delete().eq('room_id', room.id).eq('uid', uid);
+    throw e;
+  }
+}
+
+export async function joinRoom(
+  db: SupabaseClient,
+  uid: string,
+  code: string,
+  displayName: string,
+): Promise<{ roomId: string; seat: number }> {
+  const { data: room, error: roomErr } = await db
+    .from('rooms')
+    .select('*')
+    .eq('code', (code ?? '').trim().toUpperCase())
+    .maybeSingle();
+  dbError(roomErr);
+  if (!room) throw new OnlineError('room_not_found');
+
+  const { data: existing, error: existingErr } = await db
+    .from('room_players')
+    .select('seat')
+    .eq('room_id', room.id)
+    .eq('uid', uid)
+    .maybeSingle();
+  dbError(existingErr);
+  // 再接続（既に着席済み）は部屋の状態に関わらず常に成功させる。
+  if (existing) return { roomId: room.id, seat: existing.seat };
+
+  if (room.status === 'lobby') return joinLobbyRoom(db, room, uid, displayName);
+  if (room.status === 'playing') return joinPlayingRoom(db, room, uid, displayName);
+  throw new OnlineError('already_started'); // finished
 }
 
 // ============================================================

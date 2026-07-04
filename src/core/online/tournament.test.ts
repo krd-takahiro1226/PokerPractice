@@ -7,6 +7,7 @@ import {
   markLeft,
   canContinue,
   standings,
+  addLatePlayer,
   type TournamentConfig,
   type TournamentState,
 } from './tournament';
@@ -404,5 +405,75 @@ describe('standings', () => {
     };
     const result = standings(withRanks);
     expect(result.map((p) => p.uid)).toEqual(['p1', 'p0', 'p2']);
+  });
+});
+
+// ─── addLatePlayer ────────────────────────────────────────────────────────
+
+describe('addLatePlayer', () => {
+  it('途中参加後の setupHand に新uidが含まれる（stack=startingStack）', () => {
+    const t = startTournament(makeSeats(3), makeConfig());
+    const withLate = addLatePlayer(t, { uid: 'p3', displayName: 'Late', seat: 3 });
+    expect(withLate.players).toHaveLength(4);
+    const late = withLate.players.find((p) => p.uid === 'p3')!;
+    expect(late.stack).toBe(100);
+    expect(late.status).toBe('playing');
+    expect(late.stackCurve).toEqual([100]);
+
+    const setup = setupHand(withLate);
+    expect(setup.uids).toContain('p3');
+    expect(setup.seatStacks[setup.uids.indexOf('p3')]).toBe(100);
+  });
+
+  it('進行中ハンドの applyHandResult（途中参加者が uids に居ない）で途中参加者の stack/stackCurve が変化しない', () => {
+    const t = startTournament(makeSeats(3), makeConfig());
+    const withLate = addLatePlayer(t, { uid: 'p3', displayName: 'Late', seat: 3 });
+    // 進行中ハンドは途中参加前の3人だけで組まれた体
+    const ended = makeEnded([120, 90, 90]);
+    const next = applyHandResult(withLate, ended, ['p0', 'p1', 'p2']);
+    const late = next.players.find((p) => p.uid === 'p3')!;
+    expect(late.stack).toBe(100);
+    expect(late.stackCurve).toEqual([100]);
+  });
+
+  it('満席(6人)なら no-op', () => {
+    const t = startTournament(makeSeats(6), makeConfig());
+    const next = addLatePlayer(t, { uid: 'p6', displayName: 'Late', seat: 6 });
+    expect(next).toBe(t);
+    expect(next.players).toHaveLength(6);
+  });
+
+  it('重複uidなら no-op', () => {
+    const t = startTournament(makeSeats(4), makeConfig());
+    const next = addLatePlayer(t, { uid: 'p1', displayName: 'Dup', seat: 5 });
+    expect(next).toBe(t);
+    expect(next.players).toHaveLength(4);
+  });
+
+  it('finished 状態なら no-op', () => {
+    const seats = makeSeats(2);
+    let t = startTournament(seats, makeConfig());
+    const setup = setupHand(t);
+    t = applyHandResult(t, makeEnded([200, 0]), setup.uids);
+    expect(t.status).toBe('finished');
+    const next = addLatePlayer(t, { uid: 'p2', displayName: 'Late', seat: 2 });
+    expect(next).toBe(t);
+  });
+
+  it('途中参加者を含む後続ハンドで bust した際の finishRank が「その時点の総人数」基準で付く', () => {
+    const t = startTournament(makeSeats(3), makeConfig());
+    const withLate = addLatePlayer(t, { uid: 'p3', displayName: 'Late', seat: 3 });
+    expect(withLate.players).toHaveLength(4);
+
+    const setup = setupHand(withLate); // 4人が配牌に含まれる
+    expect(setup.uids).toHaveLength(4);
+    // p3 がバストし、残り3人でチップを分け合う体のスタック配分（合計 = 4*100 を保存）
+    const stacks = setup.uids.map((uid) => (uid === 'p3' ? 0 : 400 / 3));
+    const next = applyHandResult(withLate, makeEnded(stacks), setup.uids);
+
+    const late = next.players.find((p) => p.uid === 'p3')!;
+    expect(late.status).toBe('busted');
+    // totalPlayers=4, alreadyDone=0, k=1 → survivorsAfterThisHand=3, finishRank=4
+    expect(late.finishRank).toBe(4);
   });
 });

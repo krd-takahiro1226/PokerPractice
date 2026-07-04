@@ -3,6 +3,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Panel } from '../components/Panel';
 import { Button } from '../components/Button';
 import { RangeGrid, RangeLegend } from '../components/RangeGrid';
+import { PlayingCard } from '../components/PlayingCard';
 import { FeedbackBanner } from '../components/FeedbackBanner';
 import { StatBadge } from '../components/StatBadge';
 import { cn } from '../lib/cn';
@@ -10,7 +11,7 @@ import { pick, shuffle } from '../lib/random';
 import { getRfiScenarios, primaryAction } from '../core/ranges';
 import { openPercent } from '../core/ranges/expand';
 import type { Scenario } from '../core/ranges/types';
-import { ALL_HAND_CLASSES, type HandClass } from '../core/handNotation';
+import { ALL_HAND_CLASSES, handClassToCombos, type HandClass, type HoleCards } from '../core/handNotation';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
 
@@ -53,7 +54,7 @@ export function PerceivedRange() {
   );
 }
 
-type InRangeQuestion = { scenario: Scenario; hand: HandClass };
+type InRangeQuestion = { scenario: Scenario; hand: HandClass; cards: HoleCards };
 
 // 169クラスから一様に引くと大半が「含まれない」になるため、レンジ内/外を半々で出題する
 function dealInRange(): InRangeQuestion {
@@ -61,7 +62,9 @@ function dealInRange(): InRangeQuestion {
   const inRange = ALL_HAND_CLASSES.filter((h) => primaryAction(scenario.range[h]) === 'raise');
   const outRange = ALL_HAND_CLASSES.filter((h) => primaryAction(scenario.range[h]) !== 'raise');
   const pool = Math.random() < 0.5 && inRange.length > 0 ? inRange : outRange;
-  return { scenario, hand: pick(pool.length > 0 ? pool : [...ALL_HAND_CLASSES]) };
+  const hand = pick(pool.length > 0 ? pool : [...ALL_HAND_CLASSES]);
+  const cards = pick(handClassToCombos(hand));
+  return { scenario, hand, cards };
 }
 
 function InRangeDrill() {
@@ -103,6 +106,14 @@ function InRangeDrill() {
           あなたは <span className="font-semibold text-text">{q.scenario.label}</span>。
           相手から見て、この <span className="font-mono text-accent-bright">{q.hand}</span> は
           あなたが見せているオープンレンジに含まれる?
+        </div>
+
+        <div className="my-6 flex flex-col items-center gap-3">
+          <div className="flex items-center gap-3">
+            <PlayingCard card={q.cards[0]} size="lg" />
+            <PlayingCard card={q.cards[1]} size="lg" />
+          </div>
+          <div className="font-mono text-sm text-muted">{q.hand}</div>
         </div>
 
         {!answered ? (

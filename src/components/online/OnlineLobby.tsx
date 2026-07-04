@@ -38,7 +38,7 @@ function mapError(e: unknown): string {
       case 'room_full':
         return '満席です';
       case 'already_started':
-        return 'すでに開始しています';
+        return 'この対戦はすでに終了しています';
       default:
         return 'エラーが発生しました';
     }

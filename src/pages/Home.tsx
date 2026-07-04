@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Brain, Coins, Eye, Grid3x3, Percent, TrendingDown, Trophy, Users } from 'lucide-react';
+import { ArrowRight, Brain, Coins, Eye, GraduationCap, Grid3x3, Percent, TrendingDown, Trophy, Users } from 'lucide-react';
 import { Panel } from '../components/Panel';
 import { ProgressRing } from '../components/ProgressRing';
 import { StatBadge } from '../components/StatBadge';
@@ -7,6 +7,13 @@ import { accuracy, useProgress } from '../store/progress';
 import { getScenario } from '../core/ranges';
 
 const FEATURES = [
+  {
+    to: '/guide',
+    icon: GraduationCap,
+    title: 'はじめてガイド',
+    desc: 'ポーカーのルールと、このアプリでの学び方をチュートリアル形式で解説。初めての方はここから。',
+    accent: 'text-emerald-400',
+  },
   {
     to: '/range',
     icon: Grid3x3,

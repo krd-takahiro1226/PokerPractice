@@ -255,6 +255,30 @@ export function markLeft(t: TournamentState, uid: string): TournamentState {
   };
 }
 
+/** 進行中トーナメントへの途中参加。次の setupHand から配牌に加わる。
+ *  status!=='playing'、既存uid、または満席(players 6人以上)なら変更せず t を返す。 */
+export function addLatePlayer(
+  t: TournamentState,
+  entry: { uid: string; displayName: string; seat: number },
+): TournamentState {
+  if (t.status !== 'playing') return t;
+  if (t.players.some((p) => p.uid === entry.uid)) return t;
+  if (t.players.length >= 6) return t;
+  const player: OnlinePlayer = {
+    uid: entry.uid,
+    displayName: entry.displayName,
+    seat: entry.seat,
+    stack: t.config.startingStack,
+    status: 'playing',
+    finishRank: null,
+    bustedHand: null,
+    stackCurve: [t.config.startingStack],
+  };
+  // players は seat 昇順を維持する
+  const players = [...t.players, player].sort((a, b) => a.seat - b.seat);
+  return { ...t, players };
+}
+
 export function canContinue(t: TournamentState): boolean {
   return t.status === 'playing' && livePlayers(t).length >= 2;
 }

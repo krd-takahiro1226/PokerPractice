@@ -4,6 +4,8 @@ import { SeatView } from '../versus/SeatView';
 import { BoardView } from '../versus/BoardView';
 import { PotDisplay } from '../versus/PotDisplay';
 import { BetControls } from '../versus/BetControls';
+import { HandRankInfo } from '../versus/HandRankInfo';
+import { CollapsibleHandRankings } from '../HandRankings';
 import { ActionTimer } from './ActionTimer';
 import { ReactionBar } from './ReactionBar';
 import { ChipDisplayToggle } from '../ChipDisplayToggle';
@@ -166,6 +168,13 @@ export function OnlineTable({
         )}
       </div>
 
+      {/* 途中参加直後（今のハンドの publicState に自分が居ない）は観戦扱いになる */}
+      {mySeatIndex === null && phase === 'in_hand' && (
+        <div className="mx-auto w-fit whitespace-nowrap rounded-full bg-surface-2 px-3 py-1 text-center text-xs text-muted">
+          参加しました — 次のハンドから配られます（観戦中）
+        </div>
+      )}
+
       <div className="relative mx-auto aspect-[4/3] w-full max-w-2xl sm:aspect-[2/1]">
         {/* Felt (visual copy of PokerTable.tsx — that component stays 6-max-only) */}
         <div className="absolute inset-[10%] rounded-[50%] border border-accent/20 bg-gradient-to-b from-emerald-900/40 to-emerald-950/60 shadow-[inset_0_0_60px_rgba(0,0,0,0.6)]" />
@@ -260,6 +269,11 @@ export function OnlineTable({
       </div>
 
       <ReactionBar onSend={onSendReaction} reactions={reactions} onExpire={onExpireReaction} />
+
+      {mySeatIndex != null && myHole && (
+        <HandRankInfo hole={myHole} board={board} className="mx-auto" />
+      )}
+      <CollapsibleHandRankings className="mx-auto w-fit" />
 
       {/* Bottom control area */}
       <div>

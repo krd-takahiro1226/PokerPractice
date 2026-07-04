@@ -83,7 +83,13 @@ export function Online() {
         if (error) throw error;
       } catch (e) {
         const detail = e instanceof Error ? e.message : String(e);
-        setGuestError(`ゲスト参加は現在利用できません（理由: ${detail}）。Google でログインしてください。`);
+        if (/anonymous/i.test(detail)) {
+          setGuestError(
+            'ゲスト参加が無効になっています。部屋の管理者は Supabase Dashboard → Authentication → Sign In / Providers で Anonymous sign-ins を有効化してください。',
+          );
+        } else {
+          setGuestError(`ゲスト参加は現在利用できません（理由: ${detail}）。Google でログインしてください。`);
+        }
       } finally {
         setGuestBusy(false);
       }

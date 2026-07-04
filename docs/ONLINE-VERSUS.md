@@ -608,6 +608,12 @@ export function standings(t: TournamentState): OnlinePlayer[];
 - **ホスト切断でもゲームは継続**: 権威は Function にあり、`start_game` 以外の進行（`player_action`/`next_hand`/`claim_timeout`）はホスト権限不要。ホストが落ちても他プレイヤーの操作でハンドは進む。`next_hand` は先着 1 クライアントが駆動（§6.2）。
   - 新規ハンド開始（`start_game`）だけはホスト操作。開始後にホストが落ちても影響しない。ロビー段階でホストが落ちた場合は部屋を畳む（他者は `leave_room`）。
 
+### 13.4 途中参加
+- `rooms.status==='playing'` かつ `tournament.status==='playing'` の部屋は、6席未満なら `join_room` で参加できる（満席は `room_full`、トーナメント自体が `finished` なら `already_started`）。
+- 新規プレイヤーは `tournament.config.startingStack` を持ち、`addLatePlayer`（`src/core/online/tournament.ts`）で `tournament.players` に追加されるだけで、進行中のハンドには入らず**次の `setupHand` から**自動的に配牌される。進行中ハンドの座席（`room_engine.seat_uids`）は変更しない。
+- `room_engine` は楽観ロック更新（`version` 一致条件）。並行更新との競合で 0 件更新になった場合は最大2回まで `room_engine` を読み直してリトライし、それでも失敗すれば `stale` を返す。
+- 同じ `version` で `room_states.tournament` も同期するが、`phase`/`public`/`action_deadline`/`hand_number` は据え置く（進行中ハンドの表示を壊さないため）。これにより並行中の `player_action` が version 不一致で `stale` になり得るが、クライアントは realtime で自己修復するため許容している。
+
 ---
 
 ## 14. フェーズ分割と完了条件

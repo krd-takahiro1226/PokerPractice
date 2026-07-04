@@ -29,7 +29,7 @@ import { getVsOpenScenariosForSeats, type VsOpenSeatScenario } from '../core/ran
 import { seatLabels, getRfiScenariosForSeats, type SeatScenario } from '../core/ranges/seats';
 import type { Range } from '../core/ranges/types';
 import type { Position } from '../core/ranges/types';
-import { getEffectiveRange, rfiKey, vsOpenKey } from '../core/ranges/effective';
+import { getEffectiveRange, rfiSeatKey, vsOpenKey } from '../core/ranges/effective';
 import { useCustomRanges } from '../store/customRanges';
 import { useAttempts } from '../store/attempts';
 
@@ -184,8 +184,8 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
   const effectiveVsOpenIdx = vsOpenIdx < vsOpenScenarios.length ? vsOpenIdx : 0;
   const vsOpenScenario: VsOpenSeatScenario | undefined = vsOpenScenarios[effectiveVsOpenIdx];
 
-  const currentKey = chartKind === 'rfi' && is6max
-    ? rfiKey(activeRfiScenario?.heroPos as Position)
+  const currentKey = chartKind === 'rfi' && activeRfiScenario
+    ? rfiSeatKey(activeRfiScenario.heroPos, seatCount)
     : chartKind === 'vsOpen' && is6max
       ? vsOpenKey(vsOpenScenario?.villainPos as Position, vsOpenScenario?.heroPos as Position)
       : null;
@@ -226,7 +226,7 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
   }, [colorMode, chartKind, activeMaxTier]);
 
   function handleCellClick(hand: string) {
-    if (!editMode || !is6max || chartKind !== 'rfi' || !currentKey) return;
+    if (!editMode || chartKind !== 'rfi' || !currentKey) return;
     const current = activeRange[hand];
     const pa = primaryAction(current);
     const next = pa === 'raise' ? 'call' : pa === 'call' ? 'fold' : 'raise';
@@ -380,7 +380,7 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
         </div>
 
         <Panel>
-          {is6max && chartKind === 'rfi' && (
+          {chartKind === 'rfi' && (
             <div className="mb-3 flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => setEditMode((v) => !v)}
@@ -430,7 +430,7 @@ function ChartView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
           )}
           <RangeGrid
             range={activeRange}
-            onCellClick={editMode && is6max && chartKind === 'rfi' ? handleCellClick : undefined}
+            onCellClick={editMode && chartKind === 'rfi' && currentKey ? handleCellClick : undefined}
             cellColors={tierCellColors}
           />
           <div className="mt-4">

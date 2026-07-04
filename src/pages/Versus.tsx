@@ -7,6 +7,8 @@ import { Panel } from '../components/Panel';
 import { PlayingCard } from '../components/PlayingCard';
 import { PokerTable } from '../components/versus/PokerTable';
 import { BetControls } from '../components/versus/BetControls';
+import { HandRankInfo } from '../components/versus/HandRankInfo';
+import { CollapsibleHandRankings } from '../components/HandRankings';
 import { useVersusGame } from '../hooks/useVersusGame';
 import { useVersusSession } from '../hooks/useVersusSession';
 import { GAME_MODES, GAME_MODE_SHORT } from '../core/ranges';
@@ -260,6 +262,10 @@ function GameTab() {
           </div>
         </Panel>
       )}
+
+      {/* 現在の役と強さ（手番に関係なく常時表示） */}
+      {hero.hole && <HandRankInfo hole={hero.hole} board={state.board} className="mx-auto w-fit" />}
+      <CollapsibleHandRankings className="mx-auto w-fit" />
 
       {/* Hero action controls */}
       {isHeroTurn && legal && (
@@ -611,6 +617,12 @@ function SessionTab() {
           </div>
         </Panel>
       )}
+
+      {/* 現在の役と強さ（手番に関係なく常時表示） */}
+      {game.players[0].hole && (
+        <HandRankInfo hole={game.players[0].hole} board={game.board} className="mx-auto w-fit" />
+      )}
+      <CollapsibleHandRankings className="mx-auto w-fit" />
 
       {/* ヒーローのアクション */}
       {isHeroTurn && legal && (
