@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { problemKeyOf, byTsDesc, dedupeByProblemKey } from './Review';
+import { byTsDesc, dedupeByProblemKey } from './Review';
+import { problemKeyOf } from '../lib/problemKey';
 import type { QuizAttempt } from '../store/attempts';
 
 function attempt(overrides: Partial<QuizAttempt> & Pick<QuizAttempt, 'id' | 'ts'>): QuizAttempt {

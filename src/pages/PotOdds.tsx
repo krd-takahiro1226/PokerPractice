@@ -25,6 +25,8 @@ import { pick, randInt } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { problemKeyOf } from '../lib/problemKey';
 
 type Tab = 'draw' | 'reqEquity' | 'mdf' | 'implied';
 
@@ -35,6 +37,11 @@ type DrawDrill = {
   drawLabel: string;
   street: 'flop' | 'turn';
 };
+
+// record() の scenarioId と BookmarkButton の problemKey を同じ文字列にするための共通生成関数
+function drawScenarioId(d: DrawDrill): string {
+  return `potOdds:pot=${d.pot},call=${d.toCall},outs=${d.outs},street=${d.street}`;
+}
 
 function genDrawDrill(): DrawDrill {
   const draw = pick(DRAW_TYPES);
@@ -104,7 +111,7 @@ function DrawView() {
     recordPotOdds((a === 'call') === shouldCall);
     record({
       drillKind: 'potOdds',
-      scenarioId: `potOdds:pot=${drill.pot},call=${drill.toCall},outs=${drill.outs},street=${drill.street}`,
+      scenarioId: drawScenarioId(drill),
       expected: shouldCall ? 'call' : 'fold',
       answered: a,
       correct: (a === 'call') === shouldCall,
@@ -159,20 +166,25 @@ function DrawView() {
           />
         ) : (
           <div className="space-y-4">
-            <FeedbackBanner
-              correct={correct}
-              title={correct ? '正解！' : `不正解 — 正しくは「${shouldCall ? 'コール' : 'フォールド'}」`}
-            >
-              <div className="grid grid-cols-3 gap-3 pt-1">
-                <Metric label="必要勝率" value={`${(required * 100).toFixed(1)}%`} note="ポットオッズ" />
-                <Metric label="実際の勝率" value={`${(actual * 100).toFixed(1)}%`} note="アウツから厳密" highlight />
-                <Metric label="2&4の法則" value={`${(rot * 100).toFixed(0)}%`} note="概算" />
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner
+                  correct={correct}
+                  title={correct ? '正解！' : `不正解 — 正しくは「${shouldCall ? 'コール' : 'フォールド'}」`}
+                >
+                  <div className="grid grid-cols-3 gap-3 pt-1">
+                    <Metric label="必要勝率" value={`${(required * 100).toFixed(1)}%`} note="ポットオッズ" />
+                    <Metric label="実際の勝率" value={`${(actual * 100).toFixed(1)}%`} note="アウツから厳密" highlight />
+                    <Metric label="2&4の法則" value={`${(rot * 100).toFixed(0)}%`} note="概算" />
+                  </div>
+                  <p className="mt-3">
+                    必要勝率 {(required * 100).toFixed(1)}% に対し実勝率は {(actual * 100).toFixed(1)}%。
+                    {shouldCall ? ' 勝率が上回るのでコールが正当化されます。' : ' 勝率が足りずフォールドが正解です。'}
+                  </p>
+                </FeedbackBanner>
               </div>
-              <p className="mt-3">
-                必要勝率 {(required * 100).toFixed(1)}% に対し実勝率は {(actual * 100).toFixed(1)}%。
-                {shouldCall ? ' 勝率が上回るのでコールが正当化されます。' : ' 勝率が足りずフォールドが正解です。'}
-              </p>
-            </FeedbackBanner>
+              <BookmarkButton problemKey={problemKeyOf({ drillKind: 'potOdds', scenarioId: drawScenarioId(drill) })} />
+            </div>
             <Button onClick={next} size="lg" className="w-full">
               次の問題
             </Button>
@@ -201,6 +213,10 @@ function DrawView() {
 
 // ─── 必要勝率タブ ─────────────────────────────────────────────────────────────
 
+function reqEquityScenarioId(d: ReqEquityDrill): string {
+  return `reqEquity:pot=${d.pot},bet=${d.bet}`;
+}
+
 function ReqEquityView() {
   const recordReqEquity = useProgress((s) => s.recordReqEquity);
   const stats = useProgress((s) => s.reqEquity);
@@ -218,7 +234,7 @@ function ReqEquityView() {
     recordReqEquity(isCorrect);
     record({
       drillKind: 'reqEquity',
-      scenarioId: `reqEquity:pot=${drill.pot},bet=${drill.bet}`,
+      scenarioId: reqEquityScenarioId(drill),
       expected: `${(drill.answer * 100).toFixed(1)}%`,
       answered: `${(value * 100).toFixed(1)}%`,
       correct: isCorrect,
@@ -280,16 +296,23 @@ function ReqEquityView() {
 
         {answered && (
           <div className="mt-5 space-y-4">
-            <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
-              <p className="mt-1 font-mono text-sm">
-                必要勝率 = コール額 ÷ (ポット + コール額)
-                <br />
-                = {drill.bet} ÷ ({drill.pot} + {drill.bet})
-                <br />
-                = {drill.bet} ÷ {drill.pot + drill.bet}
-                <br />= {(drill.answer * 100).toFixed(1)}%
-              </p>
-            </FeedbackBanner>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
+                  <p className="mt-1 font-mono text-sm">
+                    必要勝率 = コール額 ÷ (ポット + コール額)
+                    <br />
+                    = {drill.bet} ÷ ({drill.pot} + {drill.bet})
+                    <br />
+                    = {drill.bet} ÷ {drill.pot + drill.bet}
+                    <br />= {(drill.answer * 100).toFixed(1)}%
+                  </p>
+                </FeedbackBanner>
+              </div>
+              <BookmarkButton
+                problemKey={problemKeyOf({ drillKind: 'reqEquity', scenarioId: reqEquityScenarioId(drill) })}
+              />
+            </div>
             <Button onClick={next} size="lg" className="w-full">
               次の問題
             </Button>
@@ -325,6 +348,10 @@ const MDF_TABLE = [
   { size: '2x pot', pct: '33%' },
 ];
 
+function mdfScenarioId(d: MdfDrill): string {
+  return `mdf:pot=${d.pot},bet=${d.bet}`;
+}
+
 function MdfView() {
   const recordMdf = useProgress((s) => s.recordMdf);
   const stats = useProgress((s) => s.mdf);
@@ -342,7 +369,7 @@ function MdfView() {
     recordMdf(isCorrect);
     record({
       drillKind: 'mdf',
-      scenarioId: `mdf:pot=${drill.pot},bet=${drill.bet}`,
+      scenarioId: mdfScenarioId(drill),
       expected: `${(drill.answer * 100).toFixed(1)}%`,
       answered: `${(value * 100).toFixed(1)}%`,
       correct: isCorrect,
@@ -409,19 +436,24 @@ function MdfView() {
 
         {answered && (
           <div className="mt-5 space-y-4">
-            <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
-              <p className="mt-1 font-mono text-sm">
-                MDF = ポット ÷ (ポット + ベット額)
-                <br />
-                = {drill.pot} ÷ ({drill.pot} + {drill.bet})
-                <br />
-                = {drill.pot} ÷ {drill.pot + drill.bet}
-                <br />= {(displayAnswer * 100).toFixed(0)}%
-              </p>
-              <p className="mt-3 text-xs text-muted">
-                相手のブラフを自動的に不利益（EV0以下）にする最低防御頻度。これより多く降りると、相手はどんな2枚でもブラフして利益を得られる。
-              </p>
-            </FeedbackBanner>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
+                  <p className="mt-1 font-mono text-sm">
+                    MDF = ポット ÷ (ポット + ベット額)
+                    <br />
+                    = {drill.pot} ÷ ({drill.pot} + {drill.bet})
+                    <br />
+                    = {drill.pot} ÷ {drill.pot + drill.bet}
+                    <br />= {(displayAnswer * 100).toFixed(0)}%
+                  </p>
+                  <p className="mt-3 text-xs text-muted">
+                    相手のブラフを自動的に不利益（EV0以下）にする最低防御頻度。これより多く降りると、相手はどんな2枚でもブラフして利益を得られる。
+                  </p>
+                </FeedbackBanner>
+              </div>
+              <BookmarkButton problemKey={problemKeyOf({ drillKind: 'mdf', scenarioId: mdfScenarioId(drill) })} />
+            </div>
             <Button onClick={next} size="lg" className="w-full">
               次の問題
             </Button>
@@ -455,6 +487,10 @@ function MdfView() {
 
 // ─── インプライドオッズ判断タブ ────────────────────────────────────────────
 
+function impliedScenarioId(d: ImpliedDrill): string {
+  return `implied:pot=${d.pot},call=${d.toCall},outs=${d.outs},behind=${d.behindStack}`;
+}
+
 function ImpliedView() {
   const recordPotOdds = useProgress((s) => s.recordPotOdds);
   const stats = useProgress((s) => s.potOdds);
@@ -479,7 +515,7 @@ function ImpliedView() {
     recordPotOdds((a === 'call') === shouldCall);
     record({
       drillKind: 'potOdds',
-      scenarioId: `implied:pot=${drill.pot},call=${drill.toCall},outs=${drill.outs},behind=${drill.behindStack}`,
+      scenarioId: impliedScenarioId(drill),
       expected: shouldCall ? 'call' : 'fold',
       answered: a,
       correct: (a === 'call') === shouldCall,
@@ -538,31 +574,38 @@ function ImpliedView() {
           />
         ) : (
           <div className="space-y-4">
-            <FeedbackBanner
-              correct={correct}
-              title={correct ? '正解！' : `不正解 — 正しくは「${shouldCall ? 'コール' : 'フォールド'}」`}
-            >
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <Metric label="必要勝率" value={`${(required * 100).toFixed(1)}%`} note="ポットオッズ" />
-                <Metric label="実際の勝率" value={`${(equity * 100).toFixed(1)}%`} note="アウツから厳密" highlight />
-                <Metric label="必要追加回収額" value={`${drill.requiredExtra.toFixed(0)}`} note="不足を埋めるX" />
-                <Metric
-                  label="見込み回収額"
-                  value={`${expectedCollect.toFixed(0)}`}
-                  note={`${(drill.collectFactor * 100).toFixed(0)}% × 残りスタック`}
-                  highlight
-                />
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner
+                  correct={correct}
+                  title={correct ? '正解！' : `不正解 — 正しくは「${shouldCall ? 'コール' : 'フォールド'}」`}
+                >
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <Metric label="必要勝率" value={`${(required * 100).toFixed(1)}%`} note="ポットオッズ" />
+                    <Metric label="実際の勝率" value={`${(equity * 100).toFixed(1)}%`} note="アウツから厳密" highlight />
+                    <Metric label="必要追加回収額" value={`${drill.requiredExtra.toFixed(0)}`} note="不足を埋めるX" />
+                    <Metric
+                      label="見込み回収額"
+                      value={`${expectedCollect.toFixed(0)}`}
+                      note={`${(drill.collectFactor * 100).toFixed(0)}% × 残りスタック`}
+                      highlight
+                    />
+                  </div>
+                  <p className="mt-3">
+                    このドローは{factorLabel}ため回収期待は残りスタックの約{(drill.collectFactor * 100).toFixed(0)}%。
+                    {shouldCall
+                      ? ` 見込み回収額が必要追加回収額を上回るのでコールが正当化されます。`
+                      : ` 見込み回収額では必要追加回収額を埋められずフォールドが正解です。`}
+                  </p>
+                  <p className="mt-3 text-xs text-muted">
+                    ※ これは簡易モデルによる目安であり、厳密なソルバー解ではありません。
+                  </p>
+                </FeedbackBanner>
               </div>
-              <p className="mt-3">
-                このドローは{factorLabel}ため回収期待は残りスタックの約{(drill.collectFactor * 100).toFixed(0)}%。
-                {shouldCall
-                  ? ` 見込み回収額が必要追加回収額を上回るのでコールが正当化されます。`
-                  : ` 見込み回収額では必要追加回収額を埋められずフォールドが正解です。`}
-              </p>
-              <p className="mt-3 text-xs text-muted">
-                ※ これは簡易モデルによる目安であり、厳密なソルバー解ではありません。
-              </p>
-            </FeedbackBanner>
+              <BookmarkButton
+                problemKey={problemKeyOf({ drillKind: 'potOdds', scenarioId: impliedScenarioId(drill) })}
+              />
+            </div>
             <Button onClick={next} size="lg" className="w-full">
               次の問題
             </Button>

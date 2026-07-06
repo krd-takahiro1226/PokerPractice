@@ -32,6 +32,8 @@ import type { Position } from '../core/ranges/types';
 import { getEffectiveRange, rfiSeatKey, vsOpenKey } from '../core/ranges/effective';
 import { useCustomRanges } from '../store/customRanges';
 import { useAttempts } from '../store/attempts';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { problemKeyOf } from '../lib/problemKey';
 
 type Tab = 'chart' | 'drill';
 type ChartKind = 'rfi' | 'vsOpen';
@@ -535,17 +537,24 @@ function DrillView({ mode, seatCount }: { mode: GameMode; seatCount: number }) {
           />
         ) : (
           <div className="space-y-4">
-            <FeedbackBanner
-              correct={correct}
-              title={correct ? '正解！' : `不正解 — 正解は「${ACTION_LABEL[expected]}」`}
-            >
-              {drill.scenario.label}で <span className="font-mono text-text">{drill.hand}</span> は
-              <span className={expected === 'raise' ? 'text-accent-bright' : 'text-muted'}>
-                {' '}
-                {ACTION_LABEL[expected]}
-              </span>
-              。
-            </FeedbackBanner>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner
+                  correct={correct}
+                  title={correct ? '正解！' : `不正解 — 正解は「${ACTION_LABEL[expected]}」`}
+                >
+                  {drill.scenario.label}で <span className="font-mono text-text">{drill.hand}</span> は
+                  <span className={expected === 'raise' ? 'text-accent-bright' : 'text-muted'}>
+                    {' '}
+                    {ACTION_LABEL[expected]}
+                  </span>
+                  。
+                </FeedbackBanner>
+              </div>
+              <BookmarkButton
+                problemKey={problemKeyOf({ drillKind: 'range', scenarioId: drill.scenario.id, handClass: drill.hand })}
+              />
+            </div>
             <Button onClick={next} className="w-full" size="lg">
               次のハンド
             </Button>

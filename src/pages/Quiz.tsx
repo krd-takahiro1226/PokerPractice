@@ -12,6 +12,8 @@ import { pick } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { problemKeyOf } from '../lib/problemKey';
 
 function nextQuestion(current?: QuizQuestion): QuizQuestion {
   if (QUIZ_QUESTIONS.length === 1) return QUIZ_QUESTIONS[0];
@@ -91,9 +93,14 @@ export function Quiz() {
 
           {answered && (
             <div className="mt-5 space-y-4">
-              <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
-                {q.explanation}
-              </FeedbackBanner>
+              <div className="flex items-start gap-2">
+                <div className="flex-1">
+                  <FeedbackBanner correct={correct} title={correct ? '正解！' : '不正解'}>
+                    {q.explanation}
+                  </FeedbackBanner>
+                </div>
+                <BookmarkButton problemKey={problemKeyOf({ drillKind: 'quiz', scenarioId: q.id })} />
+              </div>
               <Button onClick={next} size="lg" className="w-full">
                 次の問題
               </Button>

@@ -79,7 +79,16 @@ npm run build      # プロダクションビルド
 npm run test       # テスト実行（Vitest）
 npm run test:watch # テストウォッチモード
 npm run preview    # ビルド成果物のプレビュー
+npm run sync:functions # src/core → Edge Function 共有コードの同期
 ```
+
+## プロジェクトSKILL
+
+定型作業は `.claude/skills/` に SKILL 化済み（詳細: `.claude/skills/README.md`）。該当タイミングで必ず使うこと:
+
+- `sync-core` — `src/core/` または `supabase/functions/_shared/` の手書きファイルを変更した直後
+- `precommit` — コミット前・まとまった変更の完了報告前
+- `delegate` — サブエージェントへ設計・実装を委譲するとき（制約ブロックのテンプレート）
 
 ## コーディング規約
 

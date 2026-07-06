@@ -11,6 +11,7 @@ export type OnlineRequest =
   | { action: 'join_room'; code: string; displayName: string }
   | { action: 'leave_room'; roomId: string }
   | { action: 'start_game'; roomId: string }
+  | { action: 'kick_player'; roomId: string; targetUid: string }
   | {
       action: 'player_action';
       roomId: string;
@@ -89,6 +90,10 @@ export function leaveRoom(roomId: string) {
 
 export function startGame(roomId: string) {
   return invokeOnline<{ version: number }>({ action: 'start_game', roomId });
+}
+
+export function kickPlayer(roomId: string, targetUid: string) {
+  return invokeOnline<Record<string, never>>({ action: 'kick_player', roomId, targetUid });
 }
 
 export function playerAction(

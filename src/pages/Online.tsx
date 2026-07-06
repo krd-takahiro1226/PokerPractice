@@ -3,10 +3,12 @@ import { Panel } from '../components/Panel';
 import { OnlineLobby } from '../components/online/OnlineLobby';
 import { OnlineTable } from '../components/online/OnlineTable';
 import { OnlineResults } from '../components/online/OnlineResults';
+import { OnlineLeftSummary } from '../components/online/OnlineLeftSummary';
 import { isBackendEnabled, supabase } from '../lib/supabase';
 import { useAuth } from '../store/auth';
 import { useOnlineRoom } from '../hooks/useOnlineRoom';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { loadLeftSummary, storeLeftSummary, type LeftSummary } from '../store/online';
 
 const DISPLAY_NAME_KEY = 'poker-online-name';
 
@@ -62,6 +64,9 @@ function OnlineContent() {
   const [guestName, setGuestName] = useState('');
   const [guestError, setGuestError] = useState<string | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
+
+  // 対戦中に途中退出した直後だけ、ロビーより先にチップ推移・履歴を見せる(pre-room 分岐参照)。
+  const [leftSummary, setLeftSummary] = useState<LeftSummary | null>(() => loadLeftSummary());
 
   useEffect(() => {
     if (nameDefaulted || auth.status !== 'signedIn') return;
@@ -154,6 +159,17 @@ function OnlineContent() {
   // Signed in (Google or anonymous) --------------------------------------------------
 
   if (!online.roomId) {
+    if (leftSummary) {
+      return (
+        <OnlineLeftSummary
+          summary={leftSummary}
+          onClose={() => {
+            storeLeftSummary(null);
+            setLeftSummary(null);
+          }}
+        />
+      );
+    }
     return (
       <OnlineLobby
         mode="pre-room"
@@ -242,6 +258,7 @@ function OnlineContent() {
         roomConfig={online.roomConfig}
         onStartGame={online.startGame}
         onLeave={online.leaveRoom}
+        onKickPlayer={online.kickPlayer}
       />
     </>
   );

@@ -472,6 +472,29 @@ export async function leaveRoom(db: SupabaseClient, uid: string, roomId: string)
 }
 
 // ============================================================
+// kick_player
+// ============================================================
+
+export async function kickPlayer(
+  db: SupabaseClient,
+  uid: string,
+  roomId: string,
+  targetUid: string,
+): Promise<Record<string, never>> {
+  const { data: room, error: roomErr } = await db.from('rooms').select('*').eq('id', roomId).maybeSingle();
+  dbError(roomErr);
+  if (!room) throw new OnlineError('room_not_found');
+  if (room.host_uid !== uid) throw new OnlineError('not_host');
+  if (room.status !== 'lobby') throw new OnlineError('already_started');
+  if (targetUid === uid) throw new OnlineError('illegal_action');
+
+  const { error } = await db.from('room_players').delete().eq('room_id', roomId).eq('uid', targetUid);
+  dbError(error);
+
+  return {};
+}
+
+// ============================================================
 // start_game
 // ============================================================
 

@@ -14,6 +14,8 @@ import type { Scenario } from '../core/ranges/types';
 import { ALL_HAND_CLASSES, handClassToCombos, type HandClass, type HoleCards } from '../core/handNotation';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { problemKeyOf } from '../lib/problemKey';
 
 type Tab = 'inRange' | 'percent';
 
@@ -127,12 +129,19 @@ function InRangeDrill() {
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            <FeedbackBanner
-              correct={correct}
-              title={correct ? '正解！' : `不正解 — 正解は「${expected}」`}
-            >
-              あなたの実際のハンドが何であれ、相手にはこのレンジ全体に見えています。
-            </FeedbackBanner>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner
+                  correct={correct}
+                  title={correct ? '正解！' : `不正解 — 正解は「${expected}」`}
+                >
+                  あなたの実際のハンドが何であれ、相手にはこのレンジ全体に見えています。
+                </FeedbackBanner>
+              </div>
+              <BookmarkButton
+                problemKey={problemKeyOf({ drillKind: 'perceived', scenarioId: q.scenario.id, handClass: q.hand })}
+              />
+            </div>
             <RangeGrid range={q.scenario.range} highlight={q.hand} />
             <RangeLegend />
             <Button onClick={next} className="w-full" size="lg">
@@ -238,12 +247,17 @@ function PercentDrill() {
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            <FeedbackBanner
-              correct={correct}
-              title={correct ? '正解！' : `不正解 — 正解は「${q.correctPct}%」`}
-            >
-              タイトなポジションほど見せるレンジが狭い（＝強く見える）。
-            </FeedbackBanner>
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <FeedbackBanner
+                  correct={correct}
+                  title={correct ? '正解！' : `不正解 — 正解は「${q.correctPct}%」`}
+                >
+                  タイトなポジションほど見せるレンジが狭い（＝強く見える）。
+                </FeedbackBanner>
+              </div>
+              <BookmarkButton problemKey={problemKeyOf({ drillKind: 'perceived', scenarioId: q.scenario.id })} />
+            </div>
             <RangeGrid range={q.scenario.range} />
             <RangeLegend percent={q.correctPct / 100} />
             <Button onClick={next} className="w-full" size="lg">

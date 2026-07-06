@@ -10,6 +10,8 @@ import { pick } from '../lib/random';
 import { cn } from '../lib/cn';
 import { accuracy, useProgress } from '../store/progress';
 import { useAttempts } from '../store/attempts';
+import { BookmarkButton } from '../components/BookmarkButton';
+import { problemKeyOf } from '../lib/problemKey';
 
 const STRATEGY_LABEL: Record<CbetStrategy, string> = {
   high: '高頻度CB（レンジベット気味）',
@@ -117,9 +119,14 @@ export function Cbet() {
 
           {answered && (
             <div className="mt-5 space-y-4">
-              <FeedbackBanner correct={correct} title={correct ? '正解！' : `不正解 — 正解は「${STRATEGY_LABEL[q.answer]}」`}>
-                {q.explanation}
-              </FeedbackBanner>
+              <div className="flex items-start gap-2">
+                <div className="flex-1">
+                  <FeedbackBanner correct={correct} title={correct ? '正解！' : `不正解 — 正解は「${STRATEGY_LABEL[q.answer]}」`}>
+                    {q.explanation}
+                  </FeedbackBanner>
+                </div>
+                <BookmarkButton problemKey={problemKeyOf({ drillKind: 'cbet', scenarioId: q.id })} />
+              </div>
               <Button onClick={next} size="lg" className="w-full">
                 次の問題
               </Button>

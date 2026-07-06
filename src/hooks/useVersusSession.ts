@@ -23,6 +23,7 @@ import { useHistory } from '../store/history';
 import { useSessions } from '../store/sessions';
 import type { SavedHand } from '../store/history';
 import type { ActiveSession } from '../store/sessions';
+import { useBoardReveal } from './useBoardReveal';
 
 export type VersusSessionController = {
   session: SessionState;
@@ -36,6 +37,8 @@ export type VersusSessionController = {
   start: (config: SessionConfig) => void;
   resume: (saved: ActiveSession) => void;
   sessionId: string | null;
+  displayBoardCount: number;
+  resultRevealed: boolean;
 };
 
 function isHandOver(game: GameState): boolean {
@@ -85,6 +88,7 @@ export function useVersusSession(): VersusSessionController {
 
   const isHeroTurn = game !== null && game.toAct === 0 && game.street !== 'showdown';
   const legal = isHeroTurn && game !== null ? legalActions(game, 0) : null;
+  const { displayBoardCount, resultRevealed, resetReveal } = useBoardReveal(game);
 
   const scheduleNext = useCallback((currentGame: GameState) => {
     if (processingRef.current) return;
@@ -203,6 +207,7 @@ export function useVersusSession(): VersusSessionController {
     }
     processingRef.current = false;
     savedRef.current = null;
+    resetReveal();
 
     const newSession = startSession(config);
     setSession(newSession);
@@ -223,7 +228,7 @@ export function useVersusSession(): VersusSessionController {
       sessionIdRef.current = id;
       saveActiveSession(id, newSession);
     }).catch(() => {});
-  }, [createSession, saveActiveSession]);
+  }, [createSession, saveActiveSession, resetReveal]);
 
   const nextHand = useCallback(() => {
     const currentSession = sessionRef.current;
@@ -235,12 +240,13 @@ export function useVersusSession(): VersusSessionController {
     }
     processingRef.current = false;
     savedRef.current = null;
+    resetReveal();
 
     setGame((prev) => {
       const handConfig = configForHand(currentSession);
       return startHand(prev, handConfig, currentSession.seatStacks);
     });
-  }, []);
+  }, [resetReveal]);
 
   const quit = useCallback(() => {
     const currentSession = sessionRef.current;
@@ -286,6 +292,7 @@ export function useVersusSession(): VersusSessionController {
     }
     processingRef.current = false;
     savedRef.current = null;
+    resetReveal();
 
     // ゾンビ席除外の導入前に保存されたセッションは stack 0 の席を含みうる。
     // そのまま startHand に渡すと SB/BB の stack<=0 検出で throw するため復元時に除外する。
@@ -298,7 +305,7 @@ export function useVersusSession(): VersusSessionController {
     const handConfig = configForHand(state);
     const newGame = startHand(null, handConfig, state.seatStacks);
     setGame(newGame);
-  }, []);
+  }, [resetReveal]);
 
   return {
     session,
@@ -323,5 +330,7 @@ export function useVersusSession(): VersusSessionController {
     start,
     resume,
     sessionId,
+    displayBoardCount,
+    resultRevealed,
   };
 }

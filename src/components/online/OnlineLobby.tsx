@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { UserX } from 'lucide-react';
 import { Panel } from '../Panel';
 import { cn } from '../../lib/cn';
 import { OnlineClientError } from '../../lib/onlineClient';
 import type { TournamentConfig, TournamentConfigInput } from '../../core/online/tournament';
 import type { RoomPlayerRow } from '../../store/online';
 import { storeRoomCode } from '../../store/online';
-import { consumeRoomClosedNotice } from '../../hooks/useOnlineRoom';
+import { consumeRoomClosedNotice, consumeKickedNotice } from '../../hooks/useOnlineRoom';
 
 const STACK_OPTIONS = [50, 100, 200] as const;
 
@@ -45,6 +46,7 @@ type InRoomProps = {
   roomConfig: TournamentConfig | null;
   onStartGame: () => Promise<void>;
   onLeave: () => Promise<void>;
+  onKickPlayer: (uid: string) => Promise<void>;
 };
 
 type OnlineLobbyProps = PreRoomProps | InRoomProps;
@@ -99,6 +101,12 @@ function PreRoomLobby({
     if (consumeRoomClosedNotice()) setRoomClosedNotice(true);
   }, []);
 
+  // ホストに kick された直後も一度だけ通知する(ON-B)。
+  const [kickedNotice, setKickedNotice] = useState(false);
+  useEffect(() => {
+    if (consumeKickedNotice()) setKickedNotice(true);
+  }, []);
+
   const handleRejoin = async () => {
     if (!rejoinCode) return;
     setRejoinError(null);
@@ -151,6 +159,17 @@ function PreRoomLobby({
           <span>部屋が閉じられました</span>
           <button
             onClick={() => setRoomClosedNotice(false)}
+            className="rounded-lg border border-border-bright bg-surface-2 px-3 py-1.5 text-xs font-semibold transition hover:bg-surface-2/80"
+          >
+            閉じる
+          </button>
+        </div>
+      )}
+      {kickedNotice && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-bright bg-surface-2/60 px-4 py-3 text-sm">
+          <span>ホストにより退出させられました</span>
+          <button
+            onClick={() => setKickedNotice(false)}
             className="rounded-lg border border-border-bright bg-surface-2 px-3 py-1.5 text-xs font-semibold transition hover:bg-surface-2/80"
           >
             閉じる
@@ -251,10 +270,38 @@ function PreRoomLobby({
   );
 }
 
-function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGame, onLeave }: InRoomProps) {
+function InRoomLobby({
+  roomCode,
+  players,
+  hostUid,
+  isHost,
+  roomConfig,
+  onStartGame,
+  onLeave,
+  onKickPlayer,
+}: InRoomProps) {
   const [copied, setCopied] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // 誤操作防止のインライン確認(OnlineTable の退出ボタンと同じ流儀): 1回目のタップで
+  // 「退出させますか？」を出し、確認タップで実行する。1行につき1人だけ確認状態を持てば十分。
+  const [confirmingKickUid, setConfirmingKickUid] = useState<string | null>(null);
+  const [kickBusyUid, setKickBusyUid] = useState<string | null>(null);
+  const [kickError, setKickError] = useState<string | null>(null);
+
+  const handleKick = async (uid: string) => {
+    setKickError(null);
+    setKickBusyUid(uid);
+    try {
+      await onKickPlayer(uid);
+    } catch {
+      setKickError('退出させられませんでした。もう一度お試しください');
+    } finally {
+      setKickBusyUid(null);
+      setConfirmingKickUid(null);
+    }
+  };
 
   // 接続状態表示を last_seen 基準で定期的に再評価する(ON-3)。
   const [now, setNow] = useState(() => Date.now());
@@ -334,10 +381,42 @@ function InRoomLobby({ roomCode, players, hostUid, isHost, roomConfig, onStartGa
                   </span>
                 )}
               </div>
-              <span className="text-xs text-muted">Seat {p.seat + 1}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">Seat {p.seat + 1}</span>
+                {isHost &&
+                  p.uid !== hostUid &&
+                  (confirmingKickUid === p.uid ? (
+                    <span className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleKick(p.uid)}
+                        disabled={kickBusyUid === p.uid}
+                        className="rounded-md border border-danger/40 bg-danger/20 px-1.5 py-0.5 text-[10px] font-semibold text-danger transition hover:bg-danger/30 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {kickBusyUid === p.uid ? '実行中…' : '退出させる'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmingKickUid(null)}
+                        disabled={kickBusyUid === p.uid}
+                        className="rounded-md border border-border-bright bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold transition hover:bg-surface-2/80 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        キャンセル
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmingKickUid(p.uid)}
+                      className="rounded-md p-1 text-muted transition hover:bg-danger/10 hover:text-danger"
+                      aria-label={`${p.display_name} を退出させる`}
+                      title="退出させる"
+                    >
+                      <UserX className="h-3.5 w-3.5" />
+                    </button>
+                  ))}
+              </div>
             </div>
           ))}
         </div>
+        {kickError && <p className="text-xs text-danger">{kickError}</p>}
 
         {roomConfig?.cpuFill && (
           <p className="text-xs text-muted">

@@ -13,6 +13,7 @@ export type OnlineRequest =
   | { action: 'join_room'; code: string; displayName: string }
   | { action: 'leave_room'; roomId: string }
   | { action: 'start_game'; roomId: string }
+  | { action: 'kick_player'; roomId: string; targetUid: string }
   | { action: 'player_action'; roomId: string; version: number; move: { type: PlayerActionType; amount?: number } }
   | { action: 'next_hand'; roomId: string }
   | { action: 'claim_timeout'; roomId: string; version: number; targetUid: string }
@@ -72,6 +73,8 @@ Deno.serve(async (req) => {
         return json({ ok: true, data: await rooms.leaveRoom(db, uid, body.roomId) });
       case 'start_game':
         return json({ ok: true, data: await rooms.startGame(db, uid, body.roomId) });
+      case 'kick_player':
+        return json({ ok: true, data: await rooms.kickPlayer(db, uid, body.roomId, body.targetUid) });
       case 'player_action':
         return json({ ok: true, data: await rooms.playerAction(db, uid, body.roomId, body.version, body.move) });
       case 'next_hand':

@@ -35,6 +35,7 @@ import { formatAmount } from '../lib/chips';
 import { ChipDisplayToggle } from '../components/ChipDisplayToggle';
 import type { GameMode } from '../core/ranges/mode';
 import type { GameConfig } from '../core/game/types';
+import { buildPots } from '../core/game/pots';
 
 type Tab = 'game' | 'history' | 'sessions';
 type VersusMode = 'single' | 'session';
@@ -142,14 +143,21 @@ function GameTab() {
     mode,
     setMode,
     heroRebought,
+    displayBoardCount,
+    resultRevealed,
   } = useVersusGame();
   const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
 
   const hero = state.players[0];
   const isHandOver = state.street === 'showdown' && state.result !== null;
+  const showResult = isHandOver && resultRevealed;
 
   const totalPot =
     state.pot + state.players.reduce((s, p) => s + p.committedStreet, 0);
+
+  const pots = state.players.some((p) => p.status === 'allin')
+    ? buildPots(state.players)
+    : undefined;
 
   const streetLabel: Record<string, string> = {
     preflop: 'プリフロップ',
@@ -208,7 +216,7 @@ function GameTab() {
 
       {/* Poker table */}
       <Panel className="overflow-visible p-4">
-        <PokerTable state={state} />
+        <PokerTable state={state} displayBoardCount={displayBoardCount} pots={pots} />
       </Panel>
 
       {heroRebought && (
@@ -222,25 +230,30 @@ function GameTab() {
         <Panel className="border-accent/30 bg-accent/5 p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-accent-bright">ハンド終了</div>
-              <div className="mt-1 text-xs text-muted">
-                {state.result.endedAtStreet !== 'showdown'
-                  ? 'フォールド勝ち'
-                  : 'ショーダウン'}
-              </div>
-              {state.result.winners.map((w) => {
-                const p = state.players[w.playerId];
-                return (
-                  <div key={w.playerId} className="mt-1 text-sm">
-                    <span className={p.isHero ? 'font-bold text-accent-bright' : 'text-text'}>
-                      {p.isHero ? 'あなた' : p.pos}
-                    </span>
-                    <span className="text-muted"> が {formatAmount(w.amount, chipDisplay)} 獲得</span>
+              {showResult && (
+                <>
+                  <div className="text-sm font-semibold text-accent-bright">ハンド終了</div>
+                  <div className="mt-1 text-xs text-muted">
+                    {state.result.endedAtStreet !== 'showdown'
+                      ? 'フォールド勝ち'
+                      : 'ショーダウン'}
                   </div>
-                );
-              })}
+                  {state.result.winners.map((w) => {
+                    const p = state.players[w.playerId];
+                    return (
+                      <div key={w.playerId} className="mt-1 text-sm">
+                        <span className={p.isHero ? 'font-bold text-accent-bright' : 'text-text'}>
+                          {p.isHero ? 'あなた' : p.pos}
+                        </span>
+                        <span className="text-muted"> が {formatAmount(w.amount, chipDisplay)} 獲得</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {/* オールインでの公開ホールカードは、実際のショーダウン進行に合わせリビール開始時点から見せる */}
               {state.result.shown.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className={cn('flex flex-wrap gap-2', showResult && 'mt-2')}>
                   {state.result.shown.map((s) => {
                     const p = state.players[s.playerId];
                     return (
@@ -256,16 +269,24 @@ function GameTab() {
               )}
             </div>
 
-            <Button size="sm" onClick={newHand}>
-              <RefreshCw size={14} />
-              次のハンド
-            </Button>
+            {showResult && (
+              <Button size="sm" onClick={newHand}>
+                <RefreshCw size={14} />
+                次のハンド
+              </Button>
+            )}
           </div>
         </Panel>
       )}
 
       {/* 現在の役と強さ（手番に関係なく常時表示） */}
-      {hero.hole && <HandRankInfo hole={hero.hole} board={state.board} className="mx-auto w-fit" />}
+      {hero.hole && (
+        <HandRankInfo
+          hole={hero.hole}
+          board={state.board.slice(0, displayBoardCount)}
+          className="mx-auto w-fit"
+        />
+      )}
       <CollapsibleHandRankings className="mx-auto w-fit" />
 
       {/* Hero action controls */}
@@ -324,7 +345,19 @@ const SESSION_RESULT_LABEL: Record<string, string> = {
 
 function SessionTab() {
   const ctrl = useVersusSession();
-  const { session, game, legal, isHeroTurn, heroAct, nextHand, quit, start, pause } = ctrl;
+  const {
+    session,
+    game,
+    legal,
+    isHeroTurn,
+    heroAct,
+    nextHand,
+    quit,
+    start,
+    pause,
+    displayBoardCount,
+    resultRevealed,
+  } = ctrl;
   const [started, setStarted] = useState(false);
   const { activeSession, discardActiveSession } = useSessions();
   const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
@@ -359,9 +392,14 @@ function SessionTab() {
   };
 
   const isHandOver = game.street === 'showdown' && game.result !== null;
+  const showResult = isHandOver && resultRevealed;
   const sessionOver = session.status !== 'active';
 
   const totalPot = game.pot + game.players.reduce((s, p) => s + p.committedStreet, 0);
+
+  const pots = game.players.some((p) => p.status === 'allin')
+    ? buildPots(game.players)
+    : undefined;
 
   const streetLabel: Record<string, string> = {
     preflop: 'プリフロップ',
@@ -589,11 +627,11 @@ function SessionTab() {
         <div className="mb-1 text-right text-[10px] text-muted">
           {streetLabel[game.street]}
         </div>
-        <PokerTable state={game} />
+        <PokerTable state={game} displayBoardCount={displayBoardCount} pots={pots} />
       </Panel>
 
       {/* ハンド結果 */}
-      {isHandOver && game.result && (
+      {showResult && game.result && (
         <Panel className="border-accent/30 bg-accent/5 p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -623,7 +661,11 @@ function SessionTab() {
 
       {/* 現在の役と強さ（手番に関係なく常時表示） */}
       {game.players[0].hole && (
-        <HandRankInfo hole={game.players[0].hole} board={game.board} className="mx-auto w-fit" />
+        <HandRankInfo
+          hole={game.players[0].hole}
+          board={game.board.slice(0, displayBoardCount)}
+          className="mx-auto w-fit"
+        />
       )}
       <CollapsibleHandRankings className="mx-auto w-fit" />
 

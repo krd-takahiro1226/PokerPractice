@@ -11,6 +11,7 @@ import {
   useOnlineStore,
   getStoredRoomCode,
   storeRoomCode,
+  storeLeftSummary,
   type RoomPlayerRow,
   type RoomPhase,
   type RoomStatus,
@@ -21,6 +22,7 @@ import {
   joinRoom as apiJoinRoom,
   leaveRoom as apiLeaveRoom,
   startGame as apiStartGame,
+  kickPlayer as apiKickPlayer,
   playerAction as apiPlayerAction,
   nextHand as apiNextHand,
   claimTimeout as apiClaimTimeout,
@@ -59,6 +61,29 @@ export function consumeRoomClosedNotice(): boolean {
   try {
     if (sessionStorage.getItem(ROOM_CLOSED_NOTICE_KEY) !== '1') return false;
     sessionStorage.removeItem(ROOM_CLOSED_NOTICE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ホストに kick された(ON-B)側のロビー画面に一度だけ「退出させられました」を表示するための
+// フラグ。ROOM_CLOSED_NOTICE_KEY と同じ sessionStorage 経由の一度きり通知パターン。
+const KICKED_NOTICE_KEY = 'poker-online-kicked-notice';
+
+function markKickedNotice(): void {
+  try {
+    sessionStorage.setItem(KICKED_NOTICE_KEY, '1');
+  } catch {
+    // ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+/** フラグが立っていれば消費して true を返す(一度読んだら消える)。 */
+export function consumeKickedNotice(): boolean {
+  try {
+    if (sessionStorage.getItem(KICKED_NOTICE_KEY) !== '1') return false;
+    sessionStorage.removeItem(KICKED_NOTICE_KEY);
     return true;
   } catch {
     return false;
@@ -318,7 +343,19 @@ export function useOnlineRoom() {
   );
 
   const leaveRoom = useCallback(async () => {
-    const roomId = useOnlineStore.getState().roomId;
+    const s = useOnlineStore.getState();
+    const roomId = s.roomId;
+    // 対戦中の自発的な途中退出だけ、reset() で消える前にチップ推移/履歴を退避する(ロビー退出・
+    // 終了後の退出はトーナメントの表示価値が無い/OnlineResults で別途見られるため対象外)。
+    if (s.roomStatus === 'playing' && s.tournament !== null) {
+      storeLeftSummary({
+        roomCode: s.roomCode,
+        myUid: s.myUid,
+        tournament: s.tournament,
+        handHistory: s.handHistory,
+        leftAt: Date.now(),
+      });
+    }
     disconnect();
     storeRoomCode(null);
     useOnlineStore.getState().reset();
@@ -330,6 +367,15 @@ export function useOnlineRoom() {
       }
     }
   }, [disconnect]);
+
+  const kickPlayer = useCallback(async (targetUid: string) => {
+    const roomId = useOnlineStore.getState().roomId;
+    if (!roomId) throw new OnlineClientError('room_not_found', 'not in a room');
+    await apiKickPlayer(roomId, targetUid);
+    // realtime の room_players DELETE イベントでも players は更新されるが、体感の速さのため
+    // ホスト側はここで即座に読み直す(startGame 成功時の即時同期と同じ考え方)。
+    await syncRoomSnapshot(roomId);
+  }, []);
 
   const startGame = useCallback(async () => {
     const roomId = useOnlineStore.getState().roomId;
@@ -416,6 +462,26 @@ export function useOnlineRoom() {
     }, LOBBY_RESYNC_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [roomId, inLobby]);
+
+  // kick 検知(ON-B): ロビー中に room_players から自分の行が消えたら、ホストに退出させられたと
+  // みなす。反映経路は room_players の realtime 購読(refetchPlayers)と上のロビー再同期ポーリング
+  // (syncRoomSnapshot)の2つがあるが、どちらも最終的に store.players を更新するだけなので、ここで
+  // その結果を1箇所だけ見て判定すれば両方をカバーできる。
+  // 誤検知防止: 自発的な leaveRoom は reset() で roomId を先に null にしてから API を呼ぶため、
+  // この effect が動く時点で roomId が非null のまま「自分が players に居ない」状態になり得るのは
+  // kick 由来のみ(players が空の初回同期前は length===0 で弾く)。
+  const players = store.players;
+  const myUidForKick = store.myUid;
+  const roomStatusForKick = store.roomStatus;
+  useEffect(() => {
+    if (!roomId || roomStatusForKick !== 'lobby' || !myUidForKick) return;
+    if (players.length === 0) return;
+    if (players.some((p) => p.uid === myUidForKick)) return;
+    markKickedNotice();
+    disconnect();
+    storeRoomCode(null);
+    useOnlineStore.getState().reset();
+  }, [roomId, roomStatusForKick, myUidForKick, players, disconnect]);
 
   // Disconnect + reset on unmount (mirrors leaveRoom's cleanup).
   useEffect(() => {
@@ -607,6 +673,7 @@ export function useOnlineRoom() {
     joinRoom,
     leaveRoom,
     startGame,
+    kickPlayer,
     act,
     sendReaction,
     claimTimeout,

@@ -30,14 +30,14 @@ export function CardPicker({ used, title = 'カードを選択', onPick, onClose
         </div>
         <div className="space-y-1.5">
           {(SUITS as readonly Suit[]).map((suit) => (
-            <div key={suit} className="flex items-center gap-1.5">
+            <div key={suit} className="flex items-start gap-1.5 sm:items-center">
               <span
                 className="w-5 text-center text-lg"
                 style={{ color: SUIT_IS_RED[suit] ? '#e5484d' : '#cbd5e1' }}
               >
                 {SUIT_SYMBOL[suit]}
               </span>
-              <div className="grid flex-1 grid-cols-[repeat(13,minmax(0,1fr))] gap-1">
+              <div className="grid flex-1 grid-cols-7 gap-1 sm:grid-cols-[repeat(13,minmax(0,1fr))]">
                 {RANKS.map((rank) => {
                   const card = `${rank}${suit}` as Card;
                   const disabled = usedSet.has(card);

@@ -1,8 +1,7 @@
 import { cardsToHandClass } from '../handNotation';
-import { getScenarioForMode } from '../ranges';
-import { getVsOpen } from '../ranges/vsOpen';
 import { primaryAction } from '../ranges/types';
-import { estimateEquityVsRange } from '../ai/estimateEquity';
+import { estimateEquityVsRanges } from '../ai/estimateEquity';
+import { estimatePlayerRange, buildBroadRange } from '../ai/villainRange';
 import { potOdds as calcPotOdds, mdf as calcMdf } from '../potOdds';
 import { getEffectiveRange, rfiKey, vsOpenKey, type CustomRanges } from '../ranges/effective';
 import type { Street, PlayerActionType, HandLogEntry } from '../game/types';
@@ -307,6 +306,32 @@ function reviewPostflopDecision(
   entry: HandLogEntry,
   logIndex: number,
 ): DecisionReview {
+  const review = computePostflopVerdict(hand, entry, logIndex);
+  const villainCount = getSurvivingVillainIds(hand, logIndex).length;
+  if (villainCount >= 2) {
+    return {
+      ...review,
+      detail: `${review.detail}\n※マルチウェイ（相手${villainCount}人）のためレンジ推定は目安です。`,
+    };
+  }
+  return review;
+}
+
+/** 生存している(hero除く・logIndexより前にfoldしていない)相手playerIdの一覧。 */
+function getSurvivingVillainIds(hand: SavedHand, logIndex: number): number[] {
+  const dealtIds = new Set<number>(hand.log.map((e) => e.playerId));
+  dealtIds.delete(0); // hero除外
+  const foldedBefore = new Set<number>(
+    hand.log.slice(0, logIndex).filter((e) => e.action === 'fold').map((e) => e.playerId),
+  );
+  return [...dealtIds].filter((id) => !foldedBefore.has(id)).sort((a, b) => a - b);
+}
+
+function computePostflopVerdict(
+  hand: SavedHand,
+  entry: HandLogEntry,
+  logIndex: number,
+): DecisionReview {
   const board = getBoardAtStreet(hand, entry.street);
   if (board.length === 0 || !hand.heroHole) {
     return {
@@ -319,14 +344,17 @@ function reviewPostflopDecision(
     };
   }
 
-  // Build villain's estimated range from preflop actions
-  const villainRange = buildVillainRangeFromLog(hand);
+  // 判断時点(logIndex)で生存している相手全員のプリフロップログから推定レンジを構築
+  const villainIds = getSurvivingVillainIds(hand, logIndex);
+  const villainRanges = villainIds.length > 0
+    ? villainIds.map((pid) => estimatePlayerRange(hand.log, pid, hand.mode ?? 'tournament'))
+    : [buildBroadRange()];
 
   // Estimate equity (2000 iterations, sync)
-  const heroEquity = estimateEquityVsRange(
+  const heroEquity = estimateEquityVsRanges(
     hand.heroHole,
     board,
-    villainRange,
+    villainRanges,
     2000,
   );
 
@@ -489,104 +517,6 @@ function getBoardAtStreet(hand: SavedHand, street: Street): Card[] {
     case 'river': return hand.board.slice(0, 5);
     default: return hand.board;
   }
-}
-
-function buildVillainRangeFromLog(hand: SavedHand, _custom?: CustomRanges): Record<string, number> {
-  const preflopEntries = hand.log
-    .map((entry, i) => ({ entry, i }))
-    .filter(({ entry }) => entry.street === 'preflop');
-
-  // heroの最初のオープン(raise/bet)ログを特定
-  const heroOpen = preflopEntries.find(
-    ({ entry }) => entry.playerId === 0 && (entry.action === 'raise' || entry.action === 'bet'),
-  );
-
-  // opener候補: heroの最初のオープンより前の非heroレイズのみ。heroが先にオープンしている場合、
-  // 後続の3bettorを opener として拾ってしまうとRFIレンジ(遥かに広い)を誤採用するため対象外にする。
-  const opener = preflopEntries.find(
-    ({ entry, i }) =>
-      entry.playerId !== 0 &&
-      (entry.action === 'raise' || entry.action === 'bet') &&
-      (!heroOpen || i < heroOpen.i),
-  )?.entry;
-
-  if (opener) {
-    // Villain opened first: use RFI range for that position
-    const scenario = getScenarioForMode(`RFI_${opener.pos}`, hand.mode ?? 'tournament');
-    if (scenario) {
-      const range: Record<string, number> = {};
-      for (const [hc, action] of Object.entries(scenario.range)) {
-        const freq = (action.raise ?? 0);
-        if (freq > 0) range[hc] = freq;
-      }
-      if (Object.keys(range).length > 0) return range;
-    }
-  }
-
-  // heroが先にオープンした場合: hero open後の非heroコール/レイズ(3bet)からvsOpenレンジを推定
-  if (heroOpen) {
-    const villainResponse = preflopEntries.find(
-      ({ entry, i }) =>
-        i > heroOpen.i && entry.playerId !== 0 && (entry.action === 'call' || entry.action === 'raise'),
-    )?.entry;
-    if (villainResponse) {
-      const heroPos = hand.heroPos;
-      const villainPos = villainResponse.pos;
-      const vsOpenScenario = getVsOpen(villainPos, heroPos);
-      if (vsOpenScenario) {
-        const range: Record<string, number> = {};
-        for (const [hc, action] of Object.entries(vsOpenScenario.range)) {
-          if (villainResponse.action === 'call') {
-            const freq = action.call ?? 0;
-            if (freq > 0) range[hc] = freq;
-          } else {
-            const freq = action.raise ?? 0;
-            if (freq > 0) range[hc] = freq;
-          }
-        }
-        if (Object.keys(range).length > 0) return range;
-      }
-    }
-  }
-
-  // Fallback: opener の RFI レンジ（scenario/range 取得に失敗した場合の保険）
-  if (opener) {
-    const rfiScenario = getScenarioForMode(`RFI_${opener.pos}`, hand.mode ?? 'tournament');
-    if (rfiScenario) {
-      const range: Record<string, number> = {};
-      for (const [hc, action] of Object.entries(rfiScenario.range)) {
-        const freq = action.raise ?? 0;
-        if (freq > 0) range[hc] = freq;
-      }
-      if (Object.keys(range).length > 0) return range;
-    }
-  }
-
-  return buildBroadRange();
-}
-
-function buildBroadRange(): Record<string, number> {
-  // Conservative broad range: top ~40% of hands
-  const range: Record<string, number> = {};
-  const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-  for (let i = 12; i >= 0; i--) {
-    range[`${ranks[i]}${ranks[i]}`] = 1; // all pairs
-    for (let j = i - 1; j >= 0; j--) {
-      const hi = ranks[i];
-      const lo = ranks[j];
-      const hiVal = i;
-      const loVal = j;
-      // Include suited broadways, good suited connectors, strong offsuit
-      const gap = hiVal - loVal;
-      if (hiVal >= 8) { // T or better high card
-        range[`${hi}${lo}s`] = 1;
-        if (loVal >= 7) range[`${hi}${lo}o`] = 1; // broadway offsuit
-      } else if (gap <= 2 && hiVal >= 5) {
-        range[`${hi}${lo}s`] = 1; // suited connectors
-      }
-    }
-  }
-  return range;
 }
 
 /** ヒーローがこの判断より前に同ストリートで到達していた total-commit。 */

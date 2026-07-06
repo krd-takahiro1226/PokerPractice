@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Bookmark } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { Panel } from '../components/Panel';
+import { BookmarkButton } from '../components/BookmarkButton';
 import { useAttempts } from '../store/attempts';
 import { useBookmarks } from '../store/bookmarks';
+import { problemKeyOf } from '../lib/problemKey';
 import { cn } from '../lib/cn';
 import type { QuizAttempt } from '../store/attempts';
 
@@ -21,7 +22,7 @@ type ReviewMode = 'mistakes' | 'bookmarks';
 
 export function Review() {
   const { attempts, loaded: attLoaded, load: loadAttempts } = useAttempts();
-  const { items: bookmarkItems, loaded: bmLoaded, load: loadBookmarks, toggle, has } = useBookmarks();
+  const { items: bookmarkItems, loaded: bmLoaded, load: loadBookmarks } = useBookmarks();
   const [mode, setMode] = useState<ReviewMode>('mistakes');
 
   useEffect(() => {
@@ -65,7 +66,6 @@ export function Review() {
         <div className="space-y-3">
           {displayList.map((attempt) => {
             const key = problemKeyOf(attempt);
-            const isBookmarked = has(key);
             return (
               <Panel key={`${attempt.id}`}>
                 <div className="flex items-start justify-between gap-2">
@@ -97,16 +97,7 @@ export function Review() {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => toggle(key)}
-                    className={cn(
-                      'shrink-0 rounded-lg p-1.5 transition',
-                      isBookmarked ? 'text-gold' : 'text-muted hover:text-text',
-                    )}
-                    title={isBookmarked ? 'ブックマーク解除' : 'ブックマーク'}
-                  >
-                    <Bookmark size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
-                  </button>
+                  <BookmarkButton problemKey={key} />
                 </div>
               </Panel>
             );
@@ -115,12 +106,6 @@ export function Review() {
       )}
     </div>
   );
-}
-
-export function problemKeyOf(a: QuizAttempt): string {
-  if (a.scenarioId && a.handClass) return `${a.scenarioId}:${a.handClass}`;
-  if (a.scenarioId) return a.scenarioId;
-  return `${a.drillKind}:${a.ts}`;
 }
 
 export function byTsDesc(a: QuizAttempt, b: QuizAttempt): number {

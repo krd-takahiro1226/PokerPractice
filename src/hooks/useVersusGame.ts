@@ -13,6 +13,7 @@ import type { GameState, GameConfig, PlayerAction } from '../core/game/types';
 import type { GameMode } from '../core/ranges/mode';
 import { useHistory } from '../store/history';
 import type { SavedHand } from '../store/history';
+import { useBoardReveal } from './useBoardReveal';
 
 export type VersusController = {
   state: GameState;
@@ -25,6 +26,8 @@ export type VersusController = {
   mode: GameMode;
   setMode: (m: GameMode) => void;
   heroRebought: boolean;
+  displayBoardCount: number;
+  resultRevealed: boolean;
 };
 
 const DEFAULT_CONFIG_BASE = {
@@ -70,6 +73,7 @@ export function useVersusGame(): VersusController {
 
   const isHeroTurn = state.toAct === 0 && state.street !== 'showdown';
   const legal = isHeroTurn ? legalActions(state, 0) : null;
+  const { displayBoardCount, resultRevealed, resetReveal } = useBoardReveal(state);
 
   // CPU turn processing
   const processingRef = useRef(false);
@@ -189,13 +193,14 @@ export function useVersusGame(): VersusController {
     }
     processingRef.current = false;
     savedRef.current = null;
+    resetReveal();
     const d = pendingDifficulty.current;
     const m = pendingMode.current;
     const config = makeConfig(d, m);
     const seatStacks = state.players.map((p) => (p.stack <= 0 ? config.startingStack : p.stack));
     setHeroRebought(state.players[0].stack <= 0);
     setState((prev) => startHand(prev, config, seatStacks));
-  }, [state]);
+  }, [state, resetReveal]);
 
   const setDifficulty = useCallback((d: GameConfig['difficulty']) => {
     pendingDifficulty.current = d;
@@ -218,5 +223,7 @@ export function useVersusGame(): VersusController {
     mode,
     setMode,
     heroRebought,
+    displayBoardCount,
+    resultRevealed,
   };
 }

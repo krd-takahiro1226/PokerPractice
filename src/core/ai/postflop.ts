@@ -1,7 +1,8 @@
 import { classifyStrength } from './handStrength';
-import { estimateEquityVsRange } from './estimateEquity';
+import { estimateEquityVsRanges } from './estimateEquity';
+import { estimatePlayerRange } from './villainRange';
 import { potOdds } from '../potOdds';
-import type { GameState, PlayerAction, PlayerState } from '../game/types';
+import type { GameState, PlayerAction } from '../game/types';
 import type { LegalActions } from '../game/engine';
 import type { Card } from '../cards';
 
@@ -117,14 +118,16 @@ function decideHard(
   const player = state.players[playerId];
   if (!player.hole) return safeDefault(legal);
 
-  // 相手レンジ推定: 簡易（全ハンドクラスを均等に扱う）
-  const villainRange = buildVillainRange(state, playerId);
+  // 生存相手全員のプリフロップログからの推定レンジでマルチウェイエクイティを算出
+  const villainRanges = state.players
+    .filter((p) => p.id !== playerId && p.status !== 'folded')
+    .map((opp) => estimatePlayerRange(state.log, opp.id, state.config.mode));
 
   // 低反復MCでエクイティを算出
-  const equity = estimateEquityVsRange(
+  const equity = estimateEquityVsRanges(
     player.hole,
     state.board,
-    villainRange,
+    villainRanges,
     500, // 軽量化のため500
     rng,
   );
@@ -161,32 +164,6 @@ function decideHard(
   const mdf = pot / (pot + legal.callAmount);
   if (equity >= mdf * 0.7 && legal.canCall && rng() < 0.4) return { type: 'call' };
   return { type: 'fold' };
-}
-
-/** 相手の推定レンジ（簡易: アクティブプレイヤー全員の均等レンジ） */
-function buildVillainRange(state: GameState, heroId: number): Record<string, number> {
-  // 最も長くアクティブな相手を1人選んで均等レンジを返す
-  // MVP: 全169ハンドクラスを均等に
-  const range: Record<string, number> = {};
-  const HAND_CLASSES = getAllHandClasses();
-  for (const hc of HAND_CLASSES) {
-    range[hc] = 1;
-  }
-  return range;
-}
-
-/** 169のハンドクラスを返す（簡易版、handNotationのALL_HAND_CLASSESを使わずにインライン）。 */
-function getAllHandClasses(): string[] {
-  const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-  const classes: string[] = [];
-  for (let i = 12; i >= 0; i--) {
-    classes.push(`${ranks[i]}${ranks[i]}`);
-    for (let j = i - 1; j >= 0; j--) {
-      classes.push(`${ranks[i]}${ranks[j]}s`);
-      classes.push(`${ranks[i]}${ranks[j]}o`);
-    }
-  }
-  return classes;
 }
 
 function drawEquityApprox(draw: string): number {

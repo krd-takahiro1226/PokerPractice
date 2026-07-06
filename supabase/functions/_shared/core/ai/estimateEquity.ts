@@ -62,6 +62,80 @@ export function estimateEquityVsRange(
   return trials === 0 ? 0.5 : heroWins / trials;
 }
 
+/**
+ * ヒーローの手 vs 複数villainの推定レンジのエクイティを低反復MCで概算（マルチウェイ対応）。
+ * villainRanges が空なら 0.5、1人なら estimateEquityVsRange と同一結果になる。
+ */
+export function estimateEquityVsRanges(
+  hole: [Card, Card],
+  board: Card[],
+  villainRanges: Record<string, number>[],
+  iterations = 1000,
+  rng: () => number = Math.random,
+): number {
+  if (villainRanges.length === 0) return 0.5;
+  if (villainRanges.length === 1) {
+    return estimateEquityVsRange(hole, board, villainRanges[0], iterations, rng);
+  }
+
+  let heroEquitySum = 0;
+  let trials = 0;
+
+  for (let i = 0; i < iterations; i++) {
+    const knownCards = new Set<Card>([...hole, ...board]);
+    const villainHoles: [Card, Card][] = [];
+    let dead = false;
+
+    for (const range of villainRanges) {
+      const handClasses = Object.keys(range) as HandClass[];
+      const totalWeight = handClasses.reduce((s, h) => s + (range[h] ?? 0), 0);
+      if (handClasses.length === 0 || totalWeight === 0) {
+        dead = true;
+        break;
+      }
+      const villainHole = sampleFromRange(handClasses, range, totalWeight, knownCards, rng);
+      if (!villainHole) {
+        dead = true;
+        break;
+      }
+      villainHoles.push(villainHole);
+      knownCards.add(villainHole[0]);
+      knownCards.add(villainHole[1]);
+    }
+
+    if (dead) continue; // デッドコンボはスキップ
+
+    const usedCards = new Set<Card>([...hole, ...board, ...villainHoles.flat()]);
+    const remaining = removeCards(makeDeck(), usedCards);
+
+    const need = 5 - board.length;
+    if (need < 0) continue;
+
+    const deckCopy = remaining.slice();
+    for (let k = 0; k < need; k++) {
+      const j = k + Math.floor(rng() * (deckCopy.length - k));
+      const tmp = deckCopy[k];
+      deckCopy[k] = deckCopy[j];
+      deckCopy[j] = tmp;
+    }
+    const runout = deckCopy.slice(0, need);
+    const fullBoard: Card[] = [...board, ...runout];
+
+    const heroVal = evaluate7([...hole, ...fullBoard]);
+    const villainVals = villainHoles.map((vh) => evaluate7([...vh, ...fullBoard]));
+    const bestVal = Math.max(heroVal, ...villainVals);
+
+    if (heroVal === bestVal) {
+      const winnerCount = 1 + villainVals.filter((v) => v === bestVal).length;
+      heroEquitySum += 1 / winnerCount;
+    }
+
+    trials++;
+  }
+
+  return trials === 0 ? 0.5 : heroEquitySum / trials;
+}
+
 function sampleFromRange(
   handClasses: HandClass[],
   villainRange: Record<string, number>,

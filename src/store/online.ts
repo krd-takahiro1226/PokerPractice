@@ -162,3 +162,38 @@ export function storeRoomCode(code: string | null): void {
     // ignore storage errors (private browsing, quota, etc.)
   }
 }
+
+// 対戦中に途中退出した際、チップ推移/ハンド履歴を退出後も見られるようにするためのスナップショット。
+// useOnlineStore.reset() で本体の state は消えるため、sessionStorage 越しに退避する
+// (ROOM_CODE_STORAGE_KEY と同じ「プレーン関数・呼び出し側が明示的に読み書き」の流儀)。
+export type LeftSummary = {
+  roomCode: string | null;
+  myUid: string | null;
+  tournament: TournamentState;
+  handHistory: HandHistoryEntry[];
+  leftAt: number;
+};
+
+const LEFT_SUMMARY_STORAGE_KEY = 'poker-online-left-summary';
+
+export function storeLeftSummary(s: LeftSummary | null): void {
+  try {
+    if (s === null) {
+      sessionStorage.removeItem(LEFT_SUMMARY_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(LEFT_SUMMARY_STORAGE_KEY, JSON.stringify(s));
+    }
+  } catch {
+    // ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+export function loadLeftSummary(): LeftSummary | null {
+  try {
+    const raw = sessionStorage.getItem(LEFT_SUMMARY_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as LeftSummary;
+  } catch {
+    return null;
+  }
+}
