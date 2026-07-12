@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { HandLogEntry, HandResult, GameConfig } from '../core/game/types';
+import type { GameState, HandLogEntry, HandResult, GameConfig } from '../core/game/types';
 import type { Card } from '../core/cards';
 import type { Position } from '../core/ranges/types';
 import type { GameMode } from '../core/ranges/mode';
@@ -18,7 +18,37 @@ export type SavedHand = {
   log: HandLogEntry[];
   result: HandResult;
   heroNet: number;
+  // ---- v3 追加（すべて optional: 旧データ互換）。GTOレビューの盤面復元に使う ----
+  version?: number;
+  /** ハンド開始時の各席スタック(bb)。index = player.id */
+  stacks?: number[];
+  blinds?: { sb: number; bb: number; ante: number };
+  /** BTN の player.id */
+  buttonSeat?: number;
+  playerCount?: number;
 };
+
+export type SavedHandV3Fields = Required<
+  Pick<SavedHand, 'version' | 'stacks' | 'blinds' | 'buttonSeat' | 'playerCount'>
+>;
+
+/** ハンド終了後の GameState から v3 保存フィールドを導出する。
+ *  開始スタックは総拠出会計の不変量 start = stack + committedTotal - win で厳密に復元できる
+ *  （applyAction は支払い分を stack→committedTotal へ移し、resolveShowdown の refund/配当も
+ *  両辺を同額ずつ動かすため）。 */
+export function savedHandV3Fields(state: GameState): SavedHandV3Fields {
+  const winBy = new Map<number, number>();
+  for (const w of state.result?.winners ?? []) {
+    winBy.set(w.playerId, (winBy.get(w.playerId) ?? 0) + w.amount);
+  }
+  return {
+    version: 3,
+    stacks: state.players.map((p) => p.stack + p.committedTotal - (winBy.get(p.id) ?? 0)),
+    blinds: { sb: state.config.sb, bb: state.config.bb, ante: state.config.ante ?? 0 },
+    buttonSeat: state.buttonSeat,
+    playerCount: state.players.length,
+  };
+}
 
 type HistoryState = {
   hands: SavedHand[];
@@ -57,7 +87,8 @@ export const useHistory = create<HistoryState>()(
     }),
     {
       name: 'poker-trainer-history',
-      version: 2,
+      // v3: SavedHand に optional フィールド追加のみ（migrate は素通し）
+      version: 3,
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as { hands?: Record<string, unknown>[] };
         if (version < 2 && state?.hands) {

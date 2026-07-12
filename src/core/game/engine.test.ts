@@ -757,3 +757,42 @@ describe('resolveShowdown - uncalled bet の返還', () => {
     expect(total).toBeCloseTo(200);
   });
 });
+
+describe('applyAction - 最後の active プレイヤーがオールインレイズに直面', () => {
+  it('他家が全員 fold/allin でも、未コールのプレイヤーに手番が回る', () => {
+    // 6-max: hero(0)=BTN open 2.5 → SB(1) 20bb で allin 3bet → BB fold
+    // → hero は 17.5bb のコール/フォールド判断を持つ（強制ショーダウンにしない）
+    let state = startHand(null, freshConfig(), [100, 20, 100, 100, 100, 100]);
+    state = applyAction(state, 3, { type: 'fold' });
+    state = applyAction(state, 4, { type: 'fold' });
+    state = applyAction(state, 5, { type: 'fold' });
+    state = applyAction(state, 0, { type: 'raise', amount: 2.5 });
+    state = applyAction(state, 1, { type: 'allin' });
+    state = applyAction(state, 2, { type: 'fold' });
+
+    expect(state.result).toBeNull();
+    expect(state.toAct).toBe(0);
+    const legal = legalActions(state, 0);
+    expect(legal.canCall).toBe(true);
+    expect(legal.callAmount).toBeCloseTo(17.5);
+
+    // fold すれば SB がポットを獲得して終了
+    const folded = applyAction(state, 0, { type: 'fold' });
+    const finished = folded.result ? folded : advanceStreet(folded);
+    expect(finished.result).not.toBeNull();
+    expect(finished.result!.winners[0].playerId).toBe(1);
+  });
+
+  it('未コール分が無ければ従来どおり残ストリートは自動進行する', () => {
+    // hero bet 10 → villain が 5bb ショートで allin コール → hero に再手番は不要
+    let state = startHand(null, freshConfig(), [100, 100, 100, 100, 100, 5]);
+    state = applyAction(state, 3, { type: 'fold' });
+    state = applyAction(state, 4, { type: 'fold' });
+    state = applyAction(state, 5, { type: 'call' }); // CO 1bb (残4)
+    state = applyAction(state, 0, { type: 'raise', amount: 5 });
+    state = applyAction(state, 1, { type: 'fold' });
+    state = applyAction(state, 2, { type: 'fold' });
+    state = applyAction(state, 5, { type: 'allin' }); // 5bb ちょうど = コール
+    expect(state.toAct).toBeNull();
+  });
+});

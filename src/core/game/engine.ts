@@ -426,8 +426,11 @@ export function applyAction(
   let toAct: number | null = null;
 
   if (activeCount <= 1) {
-    // ベッティングラウンド完了（advanceStreet に委ねる）
-    toAct = null;
+    // 残り active が1人でも、その1人の拠出が currentBet に満たない場合
+    // （他家のオールインレイズに直面等）はコール/フォールドの判断が必要。
+    // 満額なら残ストリートは全員 allin 扱いで advanceStreet に委ねる
+    const lone = activePlayers[0];
+    toAct = lone && lone.committedStreet < currentBet ? lone.id : null;
   } else {
     // 次のアクターを探す
     toAct = nextToActInRound({ ...state, players, currentBet, minRaise }, playerId);

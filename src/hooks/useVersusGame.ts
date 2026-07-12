@@ -11,7 +11,7 @@ import {
 import { decideCpu } from '../core/ai';
 import type { GameState, GameConfig, PlayerAction } from '../core/game/types';
 import type { GameMode } from '../core/ranges/mode';
-import { useHistory } from '../store/history';
+import { useHistory, savedHandV3Fields } from '../store/history';
 import type { SavedHand } from '../store/history';
 import { useBoardReveal } from './useBoardReveal';
 
@@ -147,6 +147,7 @@ export function useVersusGame(): VersusController {
       log: state.log,
       result: state.result,
       heroNet,
+      ...savedHandV3Fields(state),
     };
 
     try {

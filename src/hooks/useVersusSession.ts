@@ -19,7 +19,7 @@ import {
   type SessionConfig,
   type SessionState,
 } from '../core/game/session';
-import { useHistory } from '../store/history';
+import { useHistory, savedHandV3Fields } from '../store/history';
 import { useSessions } from '../store/sessions';
 import type { SavedHand } from '../store/history';
 import type { ActiveSession } from '../store/sessions';
@@ -153,6 +153,7 @@ export function useVersusSession(): VersusSessionController {
       log: game.log,
       result: game.result,
       heroNet,
+      ...savedHandV3Fields(game),
     };
 
     try {

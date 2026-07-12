@@ -4,10 +4,12 @@ import { estimateEquityVsRanges } from '../ai/estimateEquity';
 import { estimatePlayerRange, buildBroadRange } from '../ai/villainRange';
 import { potOdds as calcPotOdds, mdf as calcMdf } from '../potOdds';
 import { getEffectiveRange, rfiKey, vsOpenKey, type CustomRanges } from '../ranges/effective';
+import { analyzeHand } from '../solver';
 import type { Street, PlayerActionType, HandLogEntry } from '../game/types';
 import type { SavedHand } from '../../store/history';
 import type { Position } from '../ranges/types';
 import type { Card } from '../cards';
+import type { StrategyAdvice } from '../solver';
 
 export type DecisionVerdict = 'good' | 'ok' | 'mistake' | 'info';
 
@@ -23,6 +25,7 @@ export type DecisionReview = {
     potOdds?: number;
     mdf?: number;
   };
+  advice?: StrategyAdvice;
 };
 
 export function reviewHand(hand: SavedHand, custom?: CustomRanges): DecisionReview[] {
@@ -31,9 +34,19 @@ export function reviewHand(hand: SavedHand, custom?: CustomRanges): DecisionRevi
     .map((entry, i) => ({ entry, i }))
     .filter(({ entry }) => entry.playerId === 0);
 
+  // UI から同期に呼ばれるため river CFR は回さない（Phase 4 で Worker 経由の解析に置き換える）
+  const adviceByLogIndex = new Map<number, StrategyAdvice>(
+    analyzeHand(hand, custom, { solveRiver: false }).map(({ snapshot, advice }) => [
+      snapshot.logIndex,
+      advice,
+    ]),
+  );
+
   for (const { entry, i } of heroLogs) {
     const review = reviewDecision(hand, entry, i, custom);
-    if (review) reviews.push(review);
+    if (!review) continue;
+    const advice = adviceByLogIndex.get(i);
+    reviews.push(advice ? { ...review, advice } : review);
   }
 
   return reviews;

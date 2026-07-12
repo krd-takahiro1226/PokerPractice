@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Info } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/Button';
 import { Panel } from '../components/Panel';
@@ -9,16 +9,14 @@ import { PokerTable } from '../components/versus/PokerTable';
 import { BetControls } from '../components/versus/BetControls';
 import { HandRankInfo } from '../components/versus/HandRankInfo';
 import { CollapsibleHandRankings } from '../components/HandRankings';
+import { HandReviewPanel, HandReviewPage } from '../components/versus/review';
 import { useVersusGame } from '../hooks/useVersusGame';
 import { useVersusSession } from '../hooks/useVersusSession';
 import { GAME_MODES, GAME_MODE_SHORT } from '../core/ranges';
 import { useHistory } from '../store/history';
 import { useSessions } from '../store/sessions';
 import type { ActiveSession } from '../store/sessions';
-import { reviewHand } from '../core/review/reviewHand';
-import { useCustomRanges } from '../store/customRanges';
 import type { SavedHand } from '../store/history';
-import type { DecisionReview } from '../core/review/reviewHand';
 import {
   DEFAULT_TOURNAMENT_LEVELS,
   CASH_LEVEL_ANTE,
@@ -39,14 +37,6 @@ import { buildPots } from '../core/game/pots';
 
 type Tab = 'game' | 'history' | 'sessions';
 type VersusMode = 'single' | 'session';
-
-// Verdict styling
-const VERDICT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-  good:    { bg: 'border-emerald-500/40 bg-emerald-500/10', text: 'text-emerald-400', label: 'Good' },
-  ok:      { bg: 'border-cyan-500/40 bg-cyan-500/10',       text: 'text-cyan-400',    label: 'OK' },
-  mistake: { bg: 'border-rose-500/40 bg-rose-500/10',       text: 'text-rose-400',    label: 'Mistake' },
-  info:    { bg: 'border-border/40 bg-surface-2/50',        text: 'text-muted',       label: 'Info' },
-};
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
@@ -805,205 +795,3 @@ function HistoryRow({ hand, onClick }: { hand: SavedHand; onClick: () => void })
   );
 }
 
-// ─── Hand Review ────────────────────────────────────────────────────────────────
-
-function HandReviewPage({ id, onBack }: { id: string; onBack: () => void }) {
-  const { hands } = useHistory();
-  const hand = hands.find((h) => h.id === id);
-  if (!hand) {
-    return (
-      <div className="py-8 text-center text-muted">
-        ハンドが見つかりません。
-        <button onClick={onBack} className="ml-2 text-accent-bright hover:underline">
-          戻る
-        </button>
-      </div>
-    );
-  }
-  return <HandReviewPanel hand={hand} onBack={onBack} />;
-}
-
-function HandReviewPanel({ hand, onBack }: { hand: SavedHand; onBack: () => void }) {
-  const custom = useCustomRanges((s) => s.ranges);
-  const reviews = reviewHand(hand, custom);
-  const chipDisplay = useDisplayPrefs((s) => s.chipDisplay);
-
-  const streetOrder = ['preflop', 'flop', 'turn', 'river', 'showdown'] as const;
-  const logsByStreet = streetOrder.reduce(
-    (acc, s) => {
-      acc[s] = hand.log.filter((l) => l.street === s);
-      return acc;
-    },
-    {} as Record<string, typeof hand.log>,
-  );
-
-  return (
-    <div className="flex flex-col gap-4">
-      <PageHeader title="ハンドレビュー" />
-
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="flex w-fit items-center gap-1.5 text-sm text-muted hover:text-text"
-      >
-        <ArrowLeft size={14} />
-        履歴一覧に戻る
-      </button>
-
-      {/* Approximation banner */}
-      <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-        <Info size={16} className="mt-0.5 shrink-0 text-amber-400" />
-        <p className="text-xs text-amber-300">
-          これはソルバーではなく一般傾向に基づく近似の目安です。エクイティ計算はモンテカルロ法（2000反復）による近似値であり、最適な戦略を保証するものではありません。
-        </p>
-      </div>
-
-      {/* Hero cards + board */}
-      <Panel className="p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-muted">あなたのハンド</div>
-            <div className="flex gap-1">
-              <PlayingCard card={hand.heroHole[0]} size="sm" />
-              <PlayingCard card={hand.heroHole[1]} size="sm" />
-            </div>
-          </div>
-          {hand.board.length > 0 && (
-            <div>
-              <div className="mb-1 text-[10px] uppercase tracking-widest text-muted">ボード</div>
-              <div className="flex gap-1">
-                {hand.board.map((c, i) => (
-                  <PlayingCard key={i} card={c} size="sm" />
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="ml-auto text-right">
-            <div className="text-[10px] uppercase tracking-widest text-muted">収支</div>
-            <div
-              className={cn(
-                'font-mono text-lg font-bold tabular-nums',
-                hand.heroNet > 0 ? 'text-emerald-400' : hand.heroNet < 0 ? 'text-rose-400' : 'text-muted',
-              )}
-            >
-              {hand.heroNet > 0 ? '+' : ''}{formatAmount(hand.heroNet, chipDisplay)}
-            </div>
-          </div>
-        </div>
-      </Panel>
-
-      {/* Street replay */}
-      <div className="flex flex-col gap-3">
-        {streetOrder.map((street) => {
-          const logs = logsByStreet[street] ?? [];
-          if (logs.length === 0) return null;
-          const STREET_LABEL: Record<string, string> = {
-            preflop: 'プリフロップ',
-            flop: 'フロップ',
-            turn: 'ターン',
-            river: 'リバー',
-            showdown: 'ショーダウン',
-          };
-          return (
-            <Panel key={street} className="p-4">
-              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
-                {STREET_LABEL[street]}
-                {street === 'flop' && hand.board.length >= 3 && (
-                  <span className="ml-2 font-normal text-text">
-                    {hand.board.slice(0, 3).join(' ')}
-                  </span>
-                )}
-                {street === 'turn' && hand.board.length >= 4 && (
-                  <span className="ml-2 font-normal text-text">{hand.board[3]}</span>
-                )}
-                {street === 'river' && hand.board.length >= 5 && (
-                  <span className="ml-2 font-normal text-text">{hand.board[4]}</span>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                {logs.map((log, i) => {
-                  const isHero = log.playerId === 0;
-                  const logIdx = hand.log.indexOf(log);
-                  const review = reviews.find((r) => r.logIndex === logIdx);
-                  const ACTION_LABEL: Record<string, string> = {
-                    fold: 'Fold',
-                    check: 'Check',
-                    call: 'Call',
-                    bet: 'Bet',
-                    raise: 'Raise',
-                    allin: 'All-in',
-                  };
-
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        'rounded-lg px-3 py-2 text-sm',
-                        isHero ? 'bg-accent/5 border border-accent/20' : 'bg-surface-2/40',
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={cn('font-semibold', isHero ? 'text-accent-bright' : 'text-text')}>
-                          {isHero ? 'YOU' : log.pos}
-                        </span>
-                        <span className="text-muted">
-                          {ACTION_LABEL[log.action]}
-                          {log.amount && ` ${log.amount.toFixed(1)}bb`}
-                        </span>
-                        {review && (
-                          <span
-                            className={cn(
-                              'ml-auto rounded px-1.5 py-0.5 text-[10px] font-bold uppercase',
-                              VERDICT_STYLE[review.verdict]?.bg,
-                              VERDICT_STYLE[review.verdict]?.text,
-                            )}
-                          >
-                            {VERDICT_STYLE[review.verdict]?.label}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Review detail */}
-                      {review && (
-                        <div
-                          className={cn(
-                            'mt-1.5 rounded border px-2 py-1.5',
-                            VERDICT_STYLE[review.verdict]?.bg,
-                          )}
-                        >
-                          <div className={cn('text-xs font-semibold', VERDICT_STYLE[review.verdict]?.text)}>
-                            {review.headline}
-                          </div>
-                          <div className="mt-0.5 text-xs text-muted">{review.detail}</div>
-                          {review.metrics && (
-                            <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-muted">
-                              {review.metrics.heroEquity !== undefined && (
-                                <span>
-                                  Equity: <strong className="text-text">{(review.metrics.heroEquity * 100).toFixed(0)}%</strong>
-                                </span>
-                              )}
-                              {review.metrics.potOdds !== undefined && (
-                                <span>
-                                  必要勝率: <strong className="text-text">{(review.metrics.potOdds * 100).toFixed(0)}%</strong>
-                                </span>
-                              )}
-                              {review.metrics.mdf !== undefined && (
-                                <span>
-                                  MDF: <strong className="text-text">{(review.metrics.mdf * 100).toFixed(0)}%</strong>
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          );
-        })}
-      </div>
-    </div>
-  );
-}

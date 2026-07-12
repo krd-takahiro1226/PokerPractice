@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sync:functions": "node scripts/sync-functions.mjs"
+    "sync:functions": "node scripts/sync-functions.mjs",
+    "presolve:batch": "tsx scripts/presolve/run-batch.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
@@ -27,6 +28,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
     "vitest": "^3.2.4"
