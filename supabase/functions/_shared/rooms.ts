@@ -107,6 +107,8 @@ function buildTournamentConfig(input: TournamentConfigInput): TournamentConfig {
       input.handsPerLevel != null ? Math.max(1, Math.floor(input.handsPerLevel)) : DEFAULT_HANDS_PER_LEVEL,
     difficulty: input.difficulty ?? 'normal',
     cpuFill: input.cpuFill === true,
+    maxPlayers:
+      input.maxPlayers != null ? Math.max(2, Math.min(6, Math.floor(input.maxPlayers))) : 6,
   };
 }
 
@@ -198,7 +200,7 @@ function isUniqueViolation(error: { code?: string; message: string } | null): bo
   return !!error && (error.code === '23505' || /duplicate key/i.test(error.message));
 }
 
-async function pickOpenSeat(db: SupabaseClient, roomId: string): Promise<number> {
+async function pickOpenSeat(db: SupabaseClient, roomId: string, maxPlayers: number): Promise<number> {
   const { data: players, error: playersErr } = await db
     .from('room_players')
     .select('seat')
@@ -206,7 +208,7 @@ async function pickOpenSeat(db: SupabaseClient, roomId: string): Promise<number>
   dbError(playersErr);
 
   const used = new Set<number>((players ?? []).map((p: { seat: number }) => p.seat));
-  if (used.size >= 6) throw new OnlineError('room_full');
+  if (used.size >= maxPlayers) throw new OnlineError('room_full');
 
   let seat = 0;
   while (used.has(seat)) seat++;
@@ -215,13 +217,14 @@ async function pickOpenSeat(db: SupabaseClient, roomId: string): Promise<number>
 
 async function joinLobbyRoom(
   db: SupabaseClient,
-  room: { id: string },
+  room: { id: string; config: TournamentConfig },
   uid: string,
   displayName: string,
 ): Promise<{ roomId: string; seat: number }> {
+  const maxPlayers = room.config.maxPlayers ?? 6;
   const MAX_RETRIES = 1;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const seat = await pickOpenSeat(db, room.id);
+    const seat = await pickOpenSeat(db, room.id, maxPlayers);
 
     const { error: insertErr } = await db.from('room_players').insert({
       room_id: room.id,
@@ -266,11 +269,13 @@ async function joinPlayingRoom(
   const { tournament }: EngineState = engineRow.state;
   if (tournament.status !== 'playing') throw new OnlineError('already_started');
 
+  const maxPlayers = tournament.config.maxPlayers ?? 6;
+
   // 座席 select と insert の間の TOCTOU 競合(ON-8): 一意制約違反時に1回だけ座席を選び直す。
   const SEAT_MAX_RETRIES = 1;
   let seat = -1;
   for (let attempt = 0; attempt <= SEAT_MAX_RETRIES; attempt++) {
-    seat = await pickOpenSeat(db, room.id);
+    seat = await pickOpenSeat(db, room.id, maxPlayers);
 
     const { error: insertErr } = await db.from('room_players').insert({
       room_id: room.id,
@@ -300,7 +305,7 @@ async function joinPlayingRoom(
       // no-op で「成功」してしまい、tournament に居ない参加者を作ってしまうため。
       if (currentTournament.status !== 'playing') throw new OnlineError('already_started');
       const newTournament = addLatePlayer(currentTournament, entry);
-      // 満席(CPU補完込みで6人)だと addLatePlayer が no-op するため、tournament に入れないまま
+      // 満席(CPU補完込みでmaxPlayers人)だと addLatePlayer が no-op するため、tournament に入れないまま
       // room_players にだけ行が残ってしまう(ON-10 相当)のを防ぐ。
       if (newTournament.players.length === currentTournament.players.length) {
         throw new OnlineError('room_full');
@@ -519,12 +524,13 @@ export async function startGame(db: SupabaseClient, uid: string, roomId: string)
     seat: p.seat,
   }));
 
-  // CPU 補完(cpuFill有効時): 人間の最大seatの次の空き番号からcpu:Nを合計6人になるまで追加する。
+  // CPU 補完(cpuFill有効時): 人間の最大seatの次の空き番号からcpu:Nを合計maxPlayers(省略時6)人になるまで追加する。
+  const maxPlayers = roomConfig.maxPlayers ?? 6;
   const cpuSeats: { uid: string; displayName: string; seat: number }[] = [];
   if (roomConfig.cpuFill) {
     let nextSeat = humanSeats.length > 0 ? Math.max(...humanSeats.map((s) => s.seat)) + 1 : 0;
     let n = 1;
-    while (humanSeats.length + cpuSeats.length < 6) {
+    while (humanSeats.length + cpuSeats.length < maxPlayers) {
       cpuSeats.push({ uid: `cpu:${n}`, displayName: `CPU ${n}`, seat: nextSeat });
       n++;
       nextSeat++;

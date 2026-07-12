@@ -67,6 +67,16 @@ describe('startSession', () => {
     expect(session.handNumber).toBe(0);
     expect(session.currentLevel).toBe(0);
   });
+
+  it('playerCount 省略時は6席になる', () => {
+    const session = startSession(TOURNAMENT_CONFIG);
+    expect(session.seatStacks).toHaveLength(6);
+  });
+
+  it('playerCount 指定時は seatStacks の長さが一致する', () => {
+    const session = startSession({ ...TOURNAMENT_CONFIG, playerCount: 3 });
+    expect(session.seatStacks).toEqual(Array(3).fill(100));
+  });
 });
 
 // ─── テスト 2: commitHandResult ────────────────────────────────────────────────

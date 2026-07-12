@@ -64,6 +64,7 @@ export function useVersusSession(): VersusSessionController {
       startingStack: 100,
       blindLevels: [],
       handsPerLevel: 10,
+      playerCount: 6,
     };
     return startSession(defaultConfig);
   });

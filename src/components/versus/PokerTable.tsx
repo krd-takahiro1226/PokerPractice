@@ -6,14 +6,38 @@ import type { GameState } from '../../core/game/types';
 import type { Position } from '../../core/ranges/types';
 import type { Pot } from '../../core/game/pots';
 
-// Seat positions on the table (CSS percentages)
-const SEAT_POS: Record<Position, { top: string; left: string }> = {
-  UTG: { top: '10%', left: '32%' },
-  HJ:  { top: '10%', left: '68%' },
-  CO:  { top: '50%', left: '92%' },
-  BTN: { top: '85%', left: '75%' },
-  SB:  { top: '85%', left: '25%' },
-  BB:  { top: '50%', left: '8%' },
+// Seat positions on the table (CSS percentages), keyed by player count
+const SEAT_POS_BY_N: Record<number, Partial<Record<Position, { top: string; left: string }>>> = {
+  2: {
+    BB: { top: '15%', left: '50%' },
+    SB: { top: '82%', left: '50%' },
+  },
+  3: {
+    BTN: { top: '12%', left: '50%' },
+    SB:  { top: '82%', left: '22%' },
+    BB:  { top: '82%', left: '78%' },
+  },
+  4: {
+    CO:  { top: '10%', left: '50%' },
+    BTN: { top: '50%', left: '90%' },
+    SB:  { top: '85%', left: '50%' },
+    BB:  { top: '50%', left: '10%' },
+  },
+  5: {
+    HJ:  { top: '10%', left: '28%' },
+    CO:  { top: '10%', left: '72%' },
+    BTN: { top: '82%', left: '80%' },
+    SB:  { top: '82%', left: '20%' },
+    BB:  { top: '50%', left: '8%' },
+  },
+  6: {
+    UTG: { top: '10%', left: '32%' },
+    HJ:  { top: '10%', left: '68%' },
+    CO:  { top: '50%', left: '92%' },
+    BTN: { top: '85%', left: '75%' },
+    SB:  { top: '85%', left: '25%' },
+    BB:  { top: '50%', left: '8%' },
+  },
 };
 
 type PokerTableProps = {
@@ -47,7 +71,8 @@ export function PokerTable({ state, className, displayBoardCount, pots }: PokerT
 
       {/* Seats */}
       {players.map((player) => {
-        const { top, left } = SEAT_POS[player.pos];
+        const seatPos = SEAT_POS_BY_N[players.length] ?? SEAT_POS_BY_N[6];
+        const { top, left } = seatPos[player.pos]!;
         const isToAct = toAct === player.id;
         const isBTN = player.id === buttonSeat;
 

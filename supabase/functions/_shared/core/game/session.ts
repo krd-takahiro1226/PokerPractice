@@ -20,6 +20,8 @@ export type SessionConfig = {
    * cash: 実質無視（レベル固定）。Infinity 相当を表すには Number.POSITIVE_INFINITY を使用。
    */
   handsPerLevel: number;
+  /** テーブル人数(2〜6)。省略時6。optional なのは localStorage に保存済みの既存セッションとの互換性のため。 */
+  playerCount?: number;
 };
 
 // format と mode の整合は UI 側で制約する（core では検証しない）:
@@ -57,7 +59,7 @@ export const CASH_LEVEL_NOANTE: BlindLevel = { sb: 0.5, bb: 1, ante: 0 };
 export function startSession(config: SessionConfig): SessionState {
   return {
     config,
-    seatStacks: Array(6).fill(config.startingStack),
+    seatStacks: Array(config.playerCount ?? 6).fill(config.startingStack),
     handNumber: 0,
     currentLevel: 0,
     stackCurve: [config.startingStack],

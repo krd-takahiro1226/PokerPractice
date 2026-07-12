@@ -25,6 +25,8 @@ export type VersusController = {
   setDifficulty: (d: GameConfig['difficulty']) => void;
   mode: GameMode;
   setMode: (m: GameMode) => void;
+  playerCount: 2 | 3 | 4 | 5 | 6;
+  setPlayerCount: (n: 2 | 3 | 4 | 5 | 6) => void;
   heroRebought: boolean;
   displayBoardCount: number;
   resultRevealed: boolean;
@@ -62,14 +64,16 @@ function needsAdvance(state: GameState): boolean {
 export function useVersusGame(): VersusController {
   const [difficulty, setDifficultyState] = useState<GameConfig['difficulty']>('normal');
   const [mode, setModeState] = useState<GameMode>('tournament');
+  const [playerCount, setPlayerCountState] = useState<2 | 3 | 4 | 5 | 6>(6);
   const [state, setState] = useState<GameState>(() =>
-    startHand(null, makeConfig('normal', 'tournament')),
+    startHand(null, makeConfig('normal', 'tournament'), Array(6).fill(DEFAULT_CONFIG_BASE.startingStack)),
   );
   const addHistory = useHistory((s) => s.add);
 
   // Pending changes (apply on next hand)
   const pendingDifficulty = useRef<GameConfig['difficulty']>('normal');
   const pendingMode = useRef<GameMode>('tournament');
+  const pendingPlayerCount = useRef<2 | 3 | 4 | 5 | 6>(6);
 
   const isHeroTurn = state.toAct === 0 && state.street !== 'showdown';
   const legal = isHeroTurn ? legalActions(state, 0) : null;
@@ -197,9 +201,16 @@ export function useVersusGame(): VersusController {
     resetReveal();
     const d = pendingDifficulty.current;
     const m = pendingMode.current;
+    const n = pendingPlayerCount.current;
     const config = makeConfig(d, m);
-    const seatStacks = state.players.map((p) => (p.stack <= 0 ? config.startingStack : p.stack));
-    setHeroRebought(state.players[0].stack <= 0);
+    let seatStacks: number[];
+    if (n === state.players.length) {
+      seatStacks = state.players.map((p) => (p.stack <= 0 ? config.startingStack : p.stack));
+      setHeroRebought(state.players[0].stack <= 0);
+    } else {
+      seatStacks = Array(n).fill(config.startingStack);
+      setHeroRebought(false);
+    }
     setState((prev) => startHand(prev, config, seatStacks));
   }, [state, resetReveal]);
 
@@ -213,6 +224,11 @@ export function useVersusGame(): VersusController {
     setModeState(m);
   }, []);
 
+  const setPlayerCount = useCallback((n: 2 | 3 | 4 | 5 | 6) => {
+    pendingPlayerCount.current = n;
+    setPlayerCountState(n);
+  }, []);
+
   return {
     state,
     legal,
@@ -223,6 +239,8 @@ export function useVersusGame(): VersusController {
     setDifficulty,
     mode,
     setMode,
+    playerCount,
+    setPlayerCount,
     heroRebought,
     displayBoardCount,
     resultRevealed,

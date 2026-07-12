@@ -729,3 +729,22 @@ describe('addLatePlayer with full CPU-filled table', () => {
     expect(next.players).toHaveLength(6);
   });
 });
+
+// ─── addLatePlayer with maxPlayers ──────────────────────────────────────────
+
+describe('addLatePlayer with maxPlayers', () => {
+  it('maxPlayers=3 で3人時は満席としてno-op', () => {
+    const t = startTournament(makeSeats(3), makeConfig({ maxPlayers: 3 }));
+    const next = addLatePlayer(t, { uid: 'p3', displayName: 'Late', seat: 3 });
+    expect(next).toBe(t);
+    expect(next.players).toHaveLength(3);
+  });
+
+  it('maxPlayers 省略時は従来通り6人まで許容する', () => {
+    const t = startTournament(makeSeats(5), makeConfig());
+    const next = addLatePlayer(t, { uid: 'p5', displayName: 'Late', seat: 5 });
+    expect(next.players).toHaveLength(6);
+    const late = next.players.find((p) => p.uid === 'p5')!;
+    expect(late.status).toBe('playing');
+  });
+});

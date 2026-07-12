@@ -62,7 +62,7 @@ export function Versus() {
     <div>
       <PageHeader
         title="対戦 (vs CPU)"
-        description="6-max 100bb。CPU5人と対戦してハンドを体で覚える。"
+        description="2〜6人テーブル 100bb。CPUと対戦してハンドを体で覚える。"
       />
 
       {/* Tabs */}
@@ -132,6 +132,8 @@ function GameTab() {
     setDifficulty,
     mode,
     setMode,
+    playerCount,
+    setPlayerCount,
     heroRebought,
     displayBoardCount,
     resultRevealed,
@@ -195,6 +197,21 @@ function GameTab() {
             )}
           >
             {GAME_MODE_SHORT[m]}
+          </button>
+        ))}
+        <span className="ml-2 text-xs text-muted">人数:</span>
+        {([2, 3, 4, 5, 6] as const).map((n) => (
+          <button
+            key={n}
+            onClick={() => setPlayerCount(n)}
+            className={cn(
+              'rounded-lg px-3 py-1 text-xs font-medium transition',
+              playerCount === n
+                ? 'bg-accent text-[#04221a]'
+                : 'border border-border text-muted hover:text-text',
+            )}
+          >
+            {n}人
           </button>
         ))}
         <ChipDisplayToggle />
@@ -356,6 +373,7 @@ function SessionTab() {
   const [format, setFormat] = useState<SessionFormat>('tournament');
   const [startingStack, setStartingStack] = useState(100);
   const [difficulty, setDifficulty] = useState<GameConfig['difficulty']>('normal');
+  const [playerCount, setPlayerCount] = useState<2 | 3 | 4 | 5 | 6>(6);
 
   // format → mode の自動マッピング
   const modeForFormat = (f: SessionFormat): GameMode =>
@@ -376,6 +394,7 @@ function SessionTab() {
       startingStack,
       blindLevels: levels,
       handsPerLevel: format === 'tournament' ? 10 : Number.POSITIVE_INFINITY,
+      playerCount,
     };
     start(config);
     setStarted(true);
@@ -500,7 +519,7 @@ function SessionTab() {
           </div>
 
           {/* 難易度 */}
-          <div className="mb-4">
+          <div className="mb-3">
             <div className="mb-1.5 text-xs text-muted">難易度</div>
             <div className="flex gap-2">
               {(['easy', 'normal', 'hard'] as const).map((d) => (
@@ -513,6 +532,25 @@ function SessionTab() {
                   )}
                 >
                   {SESSION_DIFFICULTY_LABEL[d]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 人数 */}
+          <div className="mb-4">
+            <div className="mb-1.5 text-xs text-muted">人数</div>
+            <div className="flex gap-2">
+              {([2, 3, 4, 5, 6] as const).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setPlayerCount(n)}
+                  className={cn(
+                    'rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                    playerCount === n ? 'bg-accent text-[#04221a]' : 'border border-border text-muted hover:text-text',
+                  )}
+                >
+                  {n}人
                 </button>
               ))}
             </div>

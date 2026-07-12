@@ -9,6 +9,7 @@ import { storeRoomCode } from '../../store/online';
 import { consumeRoomClosedNotice, consumeKickedNotice } from '../../hooks/useOnlineRoom';
 
 const STACK_OPTIONS = [50, 100, 200] as const;
+const MAX_PLAYERS_OPTIONS = [2, 3, 4, 5, 6] as const;
 
 type Difficulty = 'easy' | 'normal' | 'hard';
 const DIFFICULTY_LABELS: Record<Difficulty, string> = { easy: 'やさしい', normal: 'ふつう', hard: 'つよい' };
@@ -84,6 +85,7 @@ function PreRoomLobby({
   storedRoomCode,
 }: PreRoomProps) {
   const [stack, setStack] = useState<number>(100);
+  const [maxPlayers, setMaxPlayers] = useState<number>(6);
   const [cpuFill, setCpuFill] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [code, setCode] = useState('');
@@ -130,7 +132,7 @@ function PreRoomLobby({
     setBusy(true);
     try {
       await onCreateRoom(
-        { startingStack: stack, cpuFill, difficulty: cpuFill ? difficulty : undefined },
+        { startingStack: stack, cpuFill, difficulty: cpuFill ? difficulty : undefined, maxPlayers },
         displayName.trim(),
       );
     } catch (e) {
@@ -216,9 +218,23 @@ function PreRoomLobby({
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted">最大人数</span>
+            <select
+              value={maxPlayers}
+              onChange={(e) => setMaxPlayers(Number(e.target.value))}
+              className="rounded-lg border border-border bg-surface-2/50 px-2 py-1.5 text-sm outline-none"
+            >
+              {MAX_PLAYERS_OPTIONS.map((v) => (
+                <option key={v} value={v}>
+                  {v}人
+                </option>
+              ))}
+            </select>
+          </div>
           <label className="flex items-center gap-2 text-sm text-muted">
             <input type="checkbox" checked={cpuFill} onChange={(e) => setCpuFill(e.target.checked)} />
-            CPU で 6 人まで埋める
+            CPU で {maxPlayers} 人まで埋める
           </label>
           {cpuFill && (
             <div className="flex items-center gap-3">
@@ -352,6 +368,7 @@ function InRoomLobby({
         {roomConfig && (
           <div className="space-y-1 rounded-lg border border-border bg-surface-2/30 px-3 py-2 text-xs text-muted">
             <div>初期スタック {roomConfig.startingStack}bb</div>
+            <div>最大人数 {roomConfig.maxPlayers ?? 6}人</div>
             <div>
               ブラインド {roomConfig.blindLevels[0]?.sb}/{roomConfig.blindLevels[0]?.bb} から{' '}
               {Number.isFinite(roomConfig.handsPerLevel)
@@ -420,7 +437,7 @@ function InRoomLobby({
 
         {roomConfig?.cpuFill && (
           <p className="text-xs text-muted">
-            開始時に CPU × {Math.max(0, 6 - players.length)} が追加されます（
+            開始時に CPU × {Math.max(0, (roomConfig.maxPlayers ?? 6) - players.length)} が追加されます（
             {difficultyLabel(roomConfig.difficulty)}）
           </p>
         )}

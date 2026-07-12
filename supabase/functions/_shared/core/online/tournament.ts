@@ -7,7 +7,9 @@ export type TournamentConfig = {
   blindLevels: BlindLevel[];
   handsPerLevel: number;
   difficulty?: GameConfig['difficulty'];
-  cpuFill?: boolean; // true でopen時に空席をCPUで6人まで埋める。省略時false。
+  cpuFill?: boolean; // true でopen時に空席をCPUでmaxPlayers(省略時6)人まで埋める。省略時false。
+  /** 部屋の定員(2〜6)。省略時6。optional なのは DB に保存済みの既存部屋 config との互換性のため。 */
+  maxPlayers?: number;
 };
 
 export type TournamentConfigInput = Partial<TournamentConfig>;
@@ -296,14 +298,14 @@ export function markLeavingDuringHand(t: TournamentState, uid: string): Tourname
 }
 
 /** 進行中トーナメントへの途中参加。次の setupHand から配牌に加わる。
- *  status!=='playing'、既存uid、または満席(players 6人以上)なら変更せず t を返す。 */
+ *  status!=='playing'、既存uid、または満席(players が maxPlayers(省略時6)以上)なら変更せず t を返す。 */
 export function addLatePlayer(
   t: TournamentState,
   entry: { uid: string; displayName: string; seat: number },
 ): TournamentState {
   if (t.status !== 'playing') return t;
   if (t.players.some((p) => p.uid === entry.uid)) return t;
-  if (t.players.length >= 6) return t;
+  if (t.players.length >= (t.config.maxPlayers ?? 6)) return t;
   const player: OnlinePlayer = {
     uid: entry.uid,
     displayName: entry.displayName,
